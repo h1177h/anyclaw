@@ -9,7 +9,7 @@ func TestAgentResolverUsesRequestedAndMainAgentFallback(t *testing.T) {
 		},
 	}
 
-	defaultResolution, decision, err := resolver.Resolve(MainRouteRequest{})
+	defaultResolution, decision, err := resolver.Resolve(&MainRouteRequest{})
 	if err != nil {
 		t.Fatalf("Resolve default: %v", err)
 	}
@@ -20,7 +20,7 @@ func TestAgentResolverUsesRequestedAndMainAgentFallback(t *testing.T) {
 		t.Fatalf("expected default main agent resolution, got %#v", defaultResolution)
 	}
 
-	mainAliasResolution, _, err := resolver.Resolve(MainRouteRequest{
+	mainAliasResolution, _, err := resolver.Resolve(&MainRouteRequest{
 		Hint: RouteHint{RequestedAgentName: "main"},
 	})
 	if err != nil {
@@ -30,7 +30,7 @@ func TestAgentResolverUsesRequestedAndMainAgentFallback(t *testing.T) {
 		t.Fatalf("expected requested main agent resolution, got %#v", mainAliasResolution)
 	}
 
-	specialistResolution, _, err := resolver.Resolve(MainRouteRequest{
+	specialistResolution, _, err := resolver.Resolve(&MainRouteRequest{
 		Hint: RouteHint{RequestedAgentName: "vision-agent"},
 	})
 	if err != nil {
