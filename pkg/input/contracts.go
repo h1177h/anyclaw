@@ -50,6 +50,9 @@ func (b *BaseAdapter) Status() Status {
 func (b *BaseAdapter) SetRunning(running bool) {
 	b.mu.Lock()
 	b.status.Running = running
+	if running && b.status.LastError == "" {
+		b.status.Healthy = true
+	}
 	b.mu.Unlock()
 }
 

@@ -18,6 +18,8 @@ type Manager = inputlayer.Manager
 var NewBaseAdapter = inputlayer.NewBaseAdapter
 var NewManager = inputlayer.NewManager
 
+const streamFallbackErrorNotice = "[Error: stream generation failed]"
+
 func streamWithMessageFallback(streamFn func(onChunk func(chunk string)) error, sendFinal func(text string) error) error {
 	var accumulated strings.Builder
 	err := streamFn(func(chunk string) {
@@ -27,7 +29,7 @@ func streamWithMessageFallback(streamFn func(onChunk func(chunk string)) error, 
 	final := accumulated.String()
 	if err != nil {
 		if strings.TrimSpace(final) != "" {
-			if sendErr := sendFinal(final + "\n\n[Error: " + err.Error() + "]"); sendErr != nil {
+			if sendErr := sendFinal(final + "\n\n" + streamFallbackErrorNotice); sendErr != nil {
 				return errors.Join(err, sendErr)
 			}
 		}
