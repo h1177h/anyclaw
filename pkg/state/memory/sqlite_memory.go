@@ -137,7 +137,11 @@ func (m *SQLiteMemory) Add(entry MemoryEntry) error {
 	defer m.mu.Unlock()
 
 	if entry.ID == "" {
-		entry.ID = fmt.Sprintf("%d-%s", time.Now().UnixMilli(), randomID(8))
+		suffix, err := randomID(8)
+		if err != nil {
+			return fmt.Errorf("generate memory id: %w", err)
+		}
+		entry.ID = fmt.Sprintf("%d-%s", time.Now().UnixMilli(), suffix)
 	}
 	if entry.Timestamp.IsZero() {
 		entry.Timestamp = time.Now()
