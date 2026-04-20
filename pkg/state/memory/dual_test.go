@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func setupDualMemory(t *testing.T) *DualMemory {
@@ -167,6 +168,76 @@ func TestDualMemoryDelete(t *testing.T) {
 	entries, _ = dm.List()
 	if len(entries) != 0 {
 		t.Errorf("expected 0 entries after delete, got %d", len(entries))
+	}
+}
+
+func TestDualMemoryAddKeepsFileAndSQLiteEntriesAligned(t *testing.T) {
+	dm := setupDualMemory(t)
+
+	if err := dm.Add(MemoryEntry{
+		Type:    TypeFact,
+		Content: "shared entry",
+	}); err != nil {
+		t.Fatalf("failed to add entry: %v", err)
+	}
+
+	sqliteEntries, err := dm.sqlite.List()
+	if err != nil {
+		t.Fatalf("failed to list sqlite entries: %v", err)
+	}
+	fileEntries, err := dm.file.List()
+	if err != nil {
+		t.Fatalf("failed to list file entries: %v", err)
+	}
+
+	if len(sqliteEntries) != 1 || len(fileEntries) != 1 {
+		t.Fatalf("expected 1 mirrored entry in each backend, got sqlite=%d file=%d", len(sqliteEntries), len(fileEntries))
+	}
+
+	if sqliteEntries[0].ID != fileEntries[0].ID {
+		t.Fatalf("expected mirrored entry IDs to match, got sqlite=%q file=%q", sqliteEntries[0].ID, fileEntries[0].ID)
+	}
+	if !sqliteEntries[0].Timestamp.Equal(fileEntries[0].Timestamp) {
+		t.Fatalf("expected mirrored timestamps to match, got sqlite=%s file=%s", sqliteEntries[0].Timestamp.Format(time.RFC3339Nano), fileEntries[0].Timestamp.Format(time.RFC3339Nano))
+	}
+}
+
+func TestDualMemoryDeleteRemovesFileMirror(t *testing.T) {
+	dm := setupDualMemory(t)
+
+	if err := dm.Add(MemoryEntry{
+		Type:    TypeFact,
+		Content: "delete me",
+	}); err != nil {
+		t.Fatalf("failed to add entry: %v", err)
+	}
+
+	fileEntries, err := dm.file.List()
+	if err != nil {
+		t.Fatalf("failed to list file entries before delete: %v", err)
+	}
+	if len(fileEntries) != 1 {
+		t.Fatalf("expected 1 file entry before delete, got %d", len(fileEntries))
+	}
+
+	if err := dm.Delete(fileEntries[0].ID); err != nil {
+		t.Fatalf("failed to delete entry: %v", err)
+	}
+
+	fileEntries, err = dm.file.List()
+	if err != nil {
+		t.Fatalf("failed to list file entries after delete: %v", err)
+	}
+	if len(fileEntries) != 0 {
+		t.Fatalf("expected file mirror to be deleted, got %d remaining entries", len(fileEntries))
+	}
+
+	sqliteEntries, err := dm.sqlite.List()
+	if err != nil {
+		t.Fatalf("failed to list sqlite entries after delete: %v", err)
+	}
+	if len(sqliteEntries) != 0 {
+		t.Fatalf("expected sqlite entry to be deleted, got %d remaining entries", len(sqliteEntries))
 	}
 }
 
