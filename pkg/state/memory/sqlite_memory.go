@@ -587,10 +587,14 @@ func (m *SQLiteMemory) backup_loop(backupDir string, interval time.Duration, max
 func (m *SQLiteMemory) performBackup(backupDir string, maxBackups int) error {
 	m.mu.RLock()
 	db := m.db
+	srcPath := m.currentDBPathLocked()
 	m.mu.RUnlock()
 
 	if db == nil {
 		return fmt.Errorf("database not initialized")
+	}
+	if srcPath == "" {
+		return fmt.Errorf("cannot determine source database path")
 	}
 
 	if _, err := db.ExecContext(m.ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
@@ -599,11 +603,6 @@ func (m *SQLiteMemory) performBackup(backupDir string, maxBackups int) error {
 
 	timestamp := time.Now().Format("20060102_150405")
 	backupPath := filepath.Join(backupDir, fmt.Sprintf("backup_%s.db", timestamp))
-
-	srcPath := m.baseDir + "/memory.db"
-	if srcPath == "" {
-		return fmt.Errorf("cannot determine source database path")
-	}
 
 	srcFile, err := os.Open(srcPath)
 	if err != nil {
@@ -696,4 +695,15 @@ func scanVectorRowWithScore(row rowScanner) (VectorEntry, error) {
 	}
 
 	return entry, nil
+}
+
+func (m *SQLiteMemory) currentDBPathLocked() string {
+	dsn := strings.TrimSpace(m.dsn)
+	if dsn == "" {
+		return filepath.Join(m.baseDir, "memory.db")
+	}
+	if dsn == ":memory:" || strings.HasPrefix(dsn, "file:") || strings.Contains(dsn, "mode=memory") {
+		return ""
+	}
+	return dsn
 }

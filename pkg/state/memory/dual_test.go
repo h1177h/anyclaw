@@ -1,6 +1,8 @@
 package memory
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -275,5 +277,31 @@ func TestSQLiteMemoryDirect(t *testing.T) {
 
 	if stats["total"] != 1 {
 		t.Errorf("expected total 1, got %d", stats["total"])
+	}
+}
+
+func TestSQLiteMemoryInitUsesConfiguredDSN(t *testing.T) {
+	dir := t.TempDir()
+	customPath := filepath.Join(dir, "custom.db")
+
+	mem, err := NewSQLiteMemory(dir, customPath)
+	if err != nil {
+		t.Fatalf("failed to create SQLite memory: %v", err)
+	}
+
+	if err := mem.Init(); err != nil {
+		t.Fatalf("failed to init: %v", err)
+	}
+	defer mem.Close()
+
+	if _, err := os.Stat(customPath); err != nil {
+		t.Fatalf("expected custom sqlite db at %q: %v", customPath, err)
+	}
+
+	defaultPath := filepath.Join(dir, "memory.db")
+	if _, err := os.Stat(defaultPath); err == nil {
+		t.Fatalf("did not expect default sqlite db at %q", defaultPath)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("stat default sqlite db %q: %v", defaultPath, err)
 	}
 }
