@@ -90,16 +90,20 @@ func NewManager(adapters ...Adapter) *Manager {
 }
 
 func (m *Manager) Run(ctx context.Context, handle InboundHandler) {
+	var wg sync.WaitGroup
 	for _, adapter := range m.adapters {
 		if !adapter.Enabled() {
 			continue
 		}
+		wg.Add(1)
 		go func(adapter Adapter) {
-			if err := adapter.Run(ctx, handle); err != nil {
+			defer wg.Done()
+			if err := adapter.Run(ctx, handle); err != nil && ctx.Err() == nil {
 				log.Printf("input adapter %q exited with error: %v", adapter.Name(), err)
 			}
 		}(adapter)
 	}
+	wg.Wait()
 }
 
 func (m *Manager) Statuses() []Status {
