@@ -383,6 +383,9 @@ func (am *ActivationManager) RequestActivation(requestedBy, reason string) (*Act
 		(am.activeLock.ExpiresAt == nil || time.Now().Before(*am.activeLock.ExpiresAt)) {
 		return nil, fmt.Errorf("activation already pending")
 	}
+	if am.activeSnap == nil {
+		return nil, fmt.Errorf("no active snapshot")
+	}
 
 	snap := am.activeSnap.ToSnapshot()
 

@@ -549,6 +549,24 @@ func TestActivationManagerRequestActivation(t *testing.T) {
 	}
 }
 
+func TestActivationManagerRequestActivationNoSnapshot(t *testing.T) {
+	store, cleanup := setupTestStore(t, nil)
+	defer cleanup()
+
+	manager := NewActivationManager(store, nil)
+
+	lock, err := manager.RequestActivation("user1", "deploy to prod")
+	if err == nil {
+		t.Fatal("expected error when no active snapshot is loaded")
+	}
+	if lock != nil {
+		t.Fatal("expected no activation lock when request fails")
+	}
+	if err.Error() != "no active snapshot" {
+		t.Fatalf("expected 'no active snapshot', got %q", err.Error())
+	}
+}
+
 func TestActivationManagerApprove(t *testing.T) {
 	store, cleanup := setupTestStore(t, nil)
 	defer cleanup()
