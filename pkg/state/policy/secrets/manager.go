@@ -1033,8 +1033,12 @@ func (am *ActivationManager) DeleteRotationPolicy(key string) error {
 }
 
 func (am *ActivationManager) CheckScheduledRotations(actor string) ([]*RotationResult, error) {
-	am.mu.RLock()
-	defer am.mu.RUnlock()
+	am.mu.Lock()
+	defer am.mu.Unlock()
+
+	if am.activeSnap == nil {
+		return nil, fmt.Errorf("no active snapshot")
+	}
 
 	policies := am.store.ListRotationPolicies()
 	var results []*RotationResult
@@ -1068,6 +1072,22 @@ func (am *ActivationManager) CheckScheduledRotations(actor string) ([]*RotationR
 			map[string]string{"auto": "true", "strategy": "scheduled"})
 		if err != nil {
 			continue
+		}
+
+		if policy.AutoActivate {
+			entry.Value = newValue
+			entry.UpdatedAt = now
+			if entry.Metadata == nil {
+				entry.Metadata = make(map[string]string)
+			}
+			entry.Metadata["last_rotated_by"] = actor
+			entry.Metadata["last_rotation_reason"] = "scheduled rotation"
+			entry.Metadata["rotation_strategy"] = "scheduled"
+			entry.Metadata["version"] = fmt.Sprintf("%d", newVersion)
+
+			if err := am.syncActiveSecretToStore(entry); err != nil {
+				continue
+			}
 		}
 
 		results = append(results, &RotationResult{

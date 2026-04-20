@@ -1796,12 +1796,18 @@ func TestCheckScheduledRotations(t *testing.T) {
 	store, cleanup := setupTestStore(t, nil)
 	defer cleanup()
 
+	seed := &SecretEntry{
+		Key:    "api_key",
+		Value:  "current-key",
+		Scope:  ScopeGlobal,
+		Source: SourceManual,
+	}
+	if err := store.SetSecret(seed); err != nil {
+		t.Fatalf("SetSecret failed: %v", err)
+	}
+
 	snap := NewRuntimeSnapshot(map[string]*SecretEntry{
-		"api_key": {
-			Key:   "api_key",
-			Value: "current-key",
-			Scope: ScopeGlobal,
-		},
+		"api_key": cloneEntry(seed),
 	}, "initial")
 
 	manager := NewActivationManagerWithFallback(store, snap, nil)
@@ -1831,6 +1837,47 @@ func TestCheckScheduledRotations(t *testing.T) {
 	}
 	if results[0].Activated != true {
 		t.Error("expected activated to be true")
+	}
+
+	active := manager.GetActiveSnapshot()
+	entry, ok := active.Get("api_key")
+	if !ok {
+		t.Fatal("expected api_key in active snapshot")
+	}
+	if entry.Value == "current-key" {
+		t.Fatal("expected scheduled rotation to update active snapshot value")
+	}
+	if entry.Metadata["version"] != "1" {
+		t.Errorf("expected version metadata '1', got '%s'", entry.Metadata["version"])
+	}
+
+	persisted, ok := store.GetSecret("api_key", ScopeGlobal, "")
+	if !ok {
+		t.Fatal("expected api_key in store after scheduled rotation")
+	}
+	if persisted.Value != entry.Value {
+		t.Errorf("expected store value '%s', got '%s'", entry.Value, persisted.Value)
+	}
+
+	vh, err := manager.GetVersionHistory("api_key")
+	if err != nil {
+		t.Fatalf("GetVersionHistory failed: %v", err)
+	}
+	activeVer := vh.Versions[len(vh.Versions)-1]
+	if activeVer.Value != entry.Value {
+		t.Errorf("expected active version value '%s', got '%s'", entry.Value, activeVer.Value)
+	}
+
+	storedSnap, err := manager.CreateSnapshot("scheduled")
+	if err != nil {
+		t.Fatalf("CreateSnapshot failed: %v", err)
+	}
+	snapEntry, ok := storedSnap.Secrets["api_key"]
+	if !ok {
+		t.Fatal("expected api_key in scheduled snapshot")
+	}
+	if snapEntry.Value != entry.Value {
+		t.Errorf("expected snapshot value '%s', got '%s'", entry.Value, snapEntry.Value)
 	}
 }
 
