@@ -107,14 +107,20 @@ func (a *SignalAdapter) pollOnce(ctx context.Context, handle inputlayer.InboundH
 		return err
 	}
 	for _, item := range payload {
-		messageID := fmt.Sprintf("%s:%d", item.Envelope.Source, item.Envelope.Timestamp)
-		if item.Envelope.Timestamp <= a.latestTS || a.hasSeen(messageID) {
+		threadID := strings.TrimSpace(item.Envelope.GroupInfo.GroupID)
+		messageID := signalMessageID(
+			item.Envelope.Source,
+			threadID,
+			item.Envelope.Timestamp,
+			item.Envelope.DataMessage.Message,
+			item.Envelope.DataMessage.Attachments,
+		)
+		if item.Envelope.Timestamp < a.latestTS || a.hasSeen(messageID) {
 			continue
 		}
 
 		msg := strings.TrimSpace(item.Envelope.DataMessage.Message)
 		replyTarget := item.Envelope.Source
-		threadID := strings.TrimSpace(item.Envelope.GroupInfo.GroupID)
 		if threadID != "" {
 			replyTarget = threadID
 		}
@@ -149,7 +155,7 @@ func (a *SignalAdapter) pollOnce(ctx context.Context, handle inputlayer.InboundH
 			if err := a.sendMessage(ctx, replyTarget, response); err != nil {
 				return err
 			}
-			a.latestTS = item.Envelope.Timestamp
+			a.advanceTimestamp(item.Envelope.Timestamp)
 			a.markSeen(messageID)
 			a.base.MarkActivity()
 			a.append("channel.signal.voice", sessionID, map[string]any{
@@ -164,7 +170,7 @@ func (a *SignalAdapter) pollOnce(ctx context.Context, handle inputlayer.InboundH
 		}
 
 		if msg == "" {
-			a.latestTS = item.Envelope.Timestamp
+			a.advanceTimestamp(item.Envelope.Timestamp)
 			a.markSeen(messageID)
 			continue
 		}
@@ -179,7 +185,7 @@ func (a *SignalAdapter) pollOnce(ctx context.Context, handle inputlayer.InboundH
 		if err := a.sendMessage(ctx, replyTarget, response); err != nil {
 			return err
 		}
-		a.latestTS = item.Envelope.Timestamp
+		a.advanceTimestamp(item.Envelope.Timestamp)
 		a.markSeen(messageID)
 		a.base.MarkActivity()
 		a.append("channel.signal.message", sessionID, map[string]any{
@@ -239,6 +245,12 @@ func (a *SignalAdapter) append(eventType string, sessionID string, payload map[s
 	}
 }
 
+func (a *SignalAdapter) advanceTimestamp(ts int64) {
+	if ts > a.latestTS {
+		a.latestTS = ts
+	}
+}
+
 func (a *SignalAdapter) pruneSeen() {
 	for key, ts := range a.processed {
 		if time.Since(ts) > 30*time.Minute {
@@ -268,6 +280,27 @@ func (a *SignalAdapter) seen(id string) bool {
 	}
 	a.markSeen(id)
 	return false
+}
+
+func signalMessageID(source string, threadID string, timestamp int64, message string, attachments []struct {
+	ContentType string `json:"contentType"`
+	Filename    string `json:"filename"`
+}) string {
+	var b strings.Builder
+	b.WriteString(strings.TrimSpace(source))
+	b.WriteString("|")
+	b.WriteString(strings.TrimSpace(threadID))
+	b.WriteString("|")
+	b.WriteString(fmt.Sprintf("%d", timestamp))
+	b.WriteString("|")
+	b.WriteString(strings.TrimSpace(message))
+	for _, attachment := range attachments {
+		b.WriteString("|")
+		b.WriteString(strings.TrimSpace(attachment.ContentType))
+		b.WriteString(":")
+		b.WriteString(strings.TrimSpace(attachment.Filename))
+	}
+	return b.String()
 }
 
 func (a *SignalAdapter) findAudioAttachment(attachments []struct {

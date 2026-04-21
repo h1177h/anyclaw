@@ -14,6 +14,47 @@ import (
 	"github.com/1024XEngineer/anyclaw/pkg/config"
 )
 
+func TestBuildAdaptersIncludesTelegramAndSignal(t *testing.T) {
+	adapters := BuildAdapters(config.ChannelsConfig{
+		Telegram: config.TelegramChannelConfig{
+			Enabled:  true,
+			BotToken: "telegram-token",
+		},
+		Slack: config.SlackChannelConfig{
+			Enabled:        true,
+			BotToken:       "slack-token",
+			AppToken:       "app-token",
+			DefaultChannel: "C123",
+		},
+		Discord: config.DiscordChannelConfig{
+			Enabled:        true,
+			BotToken:       "discord-token",
+			DefaultChannel: "123",
+		},
+		Signal: config.SignalChannelConfig{
+			Enabled: true,
+			BaseURL: "https://signal.example",
+			Number:  "+1000",
+		},
+	}, nil)
+
+	if len(adapters) != 4 {
+		t.Fatalf("expected 4 adapters, got %d", len(adapters))
+	}
+
+	gotNames := make([]string, 0, len(adapters))
+	for _, adapter := range adapters {
+		gotNames = append(gotNames, adapter.Name())
+	}
+
+	wantNames := []string{"telegram", "slack", "discord", "signal"}
+	for i, want := range wantNames {
+		if gotNames[i] != want {
+			t.Fatalf("expected adapter %d to be %q, got %q", i, want, gotNames[i])
+		}
+	}
+}
+
 func TestSignalFindAudioAttachmentMatchesByMIMEWithoutURL(t *testing.T) {
 	adapter := &SignalAdapter{}
 	attachments := []struct {
@@ -630,6 +671,73 @@ func TestSignalPollOnceRetriesMessageUntilSendSucceeds(t *testing.T) {
 	}
 	if adapter.latestTS != 123 {
 		t.Fatalf("expected latestTS to advance after success, got %d", adapter.latestTS)
+	}
+}
+
+func TestSignalPollOnceProcessesDistinctMessagesWithSameTimestamp(t *testing.T) {
+	sendCalls := 0
+	var handled []string
+
+	adapter := NewSignalAdapter(config.SignalChannelConfig{
+		Enabled:   true,
+		BaseURL:   "https://signal.example",
+		Number:    "+1000",
+		PollEvery: 1,
+	}, nil)
+
+	adapter.client = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			switch {
+			case strings.Contains(req.URL.String(), "/v1/receive/"):
+				return jsonResponse(http.StatusOK, []map[string]any{
+					{
+						"envelope": map[string]any{
+							"timestamp":  123,
+							"source":     "+2000",
+							"sourceName": "bob",
+							"dataMessage": map[string]any{
+								"message": "hello",
+							},
+						},
+					},
+					{
+						"envelope": map[string]any{
+							"timestamp":  123,
+							"source":     "+3000",
+							"sourceName": "carol",
+							"dataMessage": map[string]any{
+								"message": "world",
+							},
+						},
+					},
+				}), nil
+			case strings.Contains(req.URL.String(), "/v2/send"):
+				sendCalls++
+				return jsonResponse(http.StatusOK, map[string]any{"timestamp": 124}), nil
+			default:
+				return nil, fmt.Errorf("unexpected request URL: %s", req.URL.String())
+			}
+		}),
+	}
+
+	err := adapter.pollOnce(context.Background(), func(ctx context.Context, sessionID string, message string, meta map[string]string) (string, string, error) {
+		handled = append(handled, message)
+		return "session-1", "ok", nil
+	})
+	if err != nil {
+		t.Fatalf("expected poll to succeed, got %v", err)
+	}
+	if len(handled) != 2 {
+		t.Fatalf("expected both same-timestamp messages to be handled, got %d", len(handled))
+	}
+	if handled[0] != "hello" || handled[1] != "world" {
+		t.Fatalf("unexpected handled messages: %v", handled)
+	}
+	if sendCalls != 2 {
+		t.Fatalf("expected 2 send attempts, got %d", sendCalls)
+	}
+	if adapter.latestTS != 123 {
+		t.Fatalf("expected latestTS to advance to 123, got %d", adapter.latestTS)
 	}
 }
 
