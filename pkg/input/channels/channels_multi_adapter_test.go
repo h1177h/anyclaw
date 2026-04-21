@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -115,14 +117,24 @@ func TestTelegramPollOncePreservesOffsetOnHandlerFailure(t *testing.T) {
 	}
 }
 
-func TestTelegramPollOnceStreamProcessesVoiceMessages(t *testing.T) {
-	var outbound []string
+func TestTelegramPollOnceProcessesVoiceMessagesWithoutTokenLeak(t *testing.T) {
+	var (
+		outbound     []string
+		eventType    string
+		eventSession string
+		eventPayload map[string]any
+		getFileCalls int32
+	)
 
 	adapter := NewTelegramAdapter(config.TelegramChannelConfig{
 		Enabled:   true,
-		BotToken:  "token",
+		BotToken:  "secret-token",
 		PollEvery: 1,
-	}, nil)
+	}, func(kind string, sessionID string, payload map[string]any) {
+		eventType = kind
+		eventSession = sessionID
+		eventPayload = payload
+	})
 
 	adapter.client = &http.Client{
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -143,6 +155,113 @@ func TestTelegramPollOnceStreamProcessesVoiceMessages(t *testing.T) {
 					},
 				}), nil
 			case strings.Contains(req.URL.String(), "/getFile"):
+				atomic.AddInt32(&getFileCalls, 1)
+				return jsonResponse(http.StatusOK, map[string]any{
+					"ok":     true,
+					"result": map[string]any{"file_id": "voice-1", "file_path": "voice/path.ogg"},
+				}), nil
+			case strings.Contains(req.URL.String(), "/sendMessage"):
+				body, err := io.ReadAll(req.Body)
+				if err != nil {
+					t.Fatalf("read request body: %v", err)
+				}
+				outbound = append(outbound, string(body))
+				return jsonResponse(http.StatusOK, map[string]any{"ok": true}), nil
+			default:
+				return nil, fmt.Errorf("unexpected request URL: %s", req.URL.String())
+			}
+		}),
+	}
+
+	err := adapter.pollOnce(context.Background(), func(ctx context.Context, sessionID string, message string, meta map[string]string) (string, string, error) {
+		if meta["message_type"] != "voice_note" {
+			t.Fatalf("expected voice_note meta, got %+v", meta)
+		}
+		if got := meta["audio_ref"]; got != "telegram-file:voice-1" {
+			t.Fatalf("expected opaque audio ref, got %+v", meta)
+		}
+		if got := meta["audio_file_id"]; got != "voice-1" {
+			t.Fatalf("expected audio file id, got %+v", meta)
+		}
+		if got := meta["audio_mime"]; got != "audio/ogg" {
+			t.Fatalf("expected audio mime, got %+v", meta)
+		}
+		if meta["audio_url"] != "" {
+			t.Fatalf("expected audio_url to stay empty, got %+v", meta)
+		}
+		if strings.Contains(meta["audio_ref"], "secret-token") {
+			t.Fatalf("expected audio ref to hide bot token, got %+v", meta)
+		}
+		return "session-voice", "voice reply", nil
+	})
+	if err != nil {
+		t.Fatalf("pollOnce failed: %v", err)
+	}
+	if len(outbound) != 1 || !strings.Contains(outbound[0], "text=voice+reply") {
+		t.Fatalf("expected voice reply to be sent once, got %+v", outbound)
+	}
+	if adapter.offset != 9 {
+		t.Fatalf("expected offset to advance after voice success, got %d", adapter.offset)
+	}
+	if atomic.LoadInt32(&getFileCalls) != 0 {
+		t.Fatalf("expected no getFile call for opaque refs, got %d", getFileCalls)
+	}
+	if eventType != "channel.telegram.voice" || eventSession != "session-voice" {
+		t.Fatalf("unexpected event info: %q %q", eventType, eventSession)
+	}
+	if got := eventPayload["audio_ref"]; got != "telegram-file:voice-1" {
+		t.Fatalf("expected opaque event audio ref, got %+v", eventPayload)
+	}
+	if got := eventPayload["audio_file_id"]; got != "voice-1" {
+		t.Fatalf("expected event audio file id, got %+v", eventPayload)
+	}
+	if got := eventPayload["audio_mime"]; got != "audio/ogg" {
+		t.Fatalf("expected event audio mime, got %+v", eventPayload)
+	}
+	if _, ok := eventPayload["audio_url"]; ok {
+		t.Fatalf("expected event payload to omit audio_url, got %+v", eventPayload)
+	}
+}
+
+func TestTelegramPollOnceStreamProcessesVoiceMessages(t *testing.T) {
+	var (
+		outbound     []string
+		eventType    string
+		eventSession string
+		eventPayload map[string]any
+		getFileCalls int32
+	)
+
+	adapter := NewTelegramAdapter(config.TelegramChannelConfig{
+		Enabled:   true,
+		BotToken:  "secret-token",
+		PollEvery: 1,
+	}, func(kind string, sessionID string, payload map[string]any) {
+		eventType = kind
+		eventSession = sessionID
+		eventPayload = payload
+	})
+
+	adapter.client = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			switch {
+			case strings.Contains(req.URL.String(), "/getUpdates"):
+				return jsonResponse(http.StatusOK, map[string]any{
+					"ok": true,
+					"result": []map[string]any{
+						{
+							"update_id": 8,
+							"message": map[string]any{
+								"caption": "voice caption",
+								"chat":    map[string]any{"id": 42, "type": "private"},
+								"from":    map[string]any{"id": 99, "username": "alice"},
+								"voice":   map[string]any{"file_id": "voice-1", "mime_type": "audio/ogg"},
+							},
+						},
+					},
+				}), nil
+			case strings.Contains(req.URL.String(), "/getFile"):
+				atomic.AddInt32(&getFileCalls, 1)
 				return jsonResponse(http.StatusOK, map[string]any{
 					"ok":     true,
 					"result": map[string]any{"file_id": "voice-1", "file_path": "voice/path.ogg"},
@@ -164,8 +283,20 @@ func TestTelegramPollOnceStreamProcessesVoiceMessages(t *testing.T) {
 		if meta["message_type"] != "voice_note" {
 			t.Fatalf("expected voice_note meta, got %+v", meta)
 		}
-		if meta["audio_url"] == "" {
-			t.Fatalf("expected audio URL in meta, got %+v", meta)
+		if got := meta["audio_ref"]; got != "telegram-file:voice-1" {
+			t.Fatalf("expected opaque audio ref in meta, got %+v", meta)
+		}
+		if got := meta["audio_file_id"]; got != "voice-1" {
+			t.Fatalf("expected audio file id in meta, got %+v", meta)
+		}
+		if got := meta["audio_mime"]; got != "audio/ogg" {
+			t.Fatalf("expected audio mime in meta, got %+v", meta)
+		}
+		if meta["audio_url"] != "" {
+			t.Fatalf("expected audio_url to stay empty, got %+v", meta)
+		}
+		if strings.Contains(meta["audio_ref"], "secret-token") {
+			t.Fatalf("expected audio ref to hide bot token, got %+v", meta)
 		}
 		if meta["caption"] != "voice caption" {
 			t.Fatalf("expected caption to be preserved, got %+v", meta)
@@ -183,6 +314,133 @@ func TestTelegramPollOnceStreamProcessesVoiceMessages(t *testing.T) {
 	}
 	if adapter.offset != 9 {
 		t.Fatalf("expected offset to advance after streaming voice success, got %d", adapter.offset)
+	}
+	if atomic.LoadInt32(&getFileCalls) != 0 {
+		t.Fatalf("expected no getFile call for opaque refs, got %d", getFileCalls)
+	}
+	if eventType != "channel.telegram.voice" || eventSession != "session-1" {
+		t.Fatalf("unexpected event info: %q %q", eventType, eventSession)
+	}
+	if got := eventPayload["audio_ref"]; got != "telegram-file:voice-1" {
+		t.Fatalf("expected opaque event audio ref, got %+v", eventPayload)
+	}
+	if got := eventPayload["audio_file_id"]; got != "voice-1" {
+		t.Fatalf("expected event audio file id, got %+v", eventPayload)
+	}
+	if got := eventPayload["audio_mime"]; got != "audio/ogg" {
+		t.Fatalf("expected event audio mime, got %+v", eventPayload)
+	}
+	if _, ok := eventPayload["audio_url"]; ok {
+		t.Fatalf("expected event payload to omit audio_url, got %+v", eventPayload)
+	}
+	if got := eventPayload["streaming"]; got != true {
+		t.Fatalf("expected streaming voice event, got %+v", eventPayload)
+	}
+}
+
+func TestTelegramSendStreamingMessageDeletesPlaceholderWhenNoChunksArrive(t *testing.T) {
+	var (
+		sendCalls   int32
+		deleteCalls int32
+		editCalls   int32
+	)
+
+	adapter := NewTelegramAdapter(config.TelegramChannelConfig{
+		Enabled:   true,
+		BotToken:  "token",
+		PollEvery: 1,
+	}, nil)
+
+	adapter.client = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			switch {
+			case strings.Contains(req.URL.String(), "/sendMessage"):
+				atomic.AddInt32(&sendCalls, 1)
+				return jsonResponse(http.StatusOK, map[string]any{
+					"ok": true,
+					"result": map[string]any{
+						"message_id": 12,
+					},
+				}), nil
+			case strings.Contains(req.URL.String(), "/deleteMessage"):
+				atomic.AddInt32(&deleteCalls, 1)
+				return jsonResponse(http.StatusOK, map[string]any{"ok": true}), nil
+			case strings.Contains(req.URL.String(), "/editMessageText"):
+				atomic.AddInt32(&editCalls, 1)
+				return jsonResponse(http.StatusOK, map[string]any{"ok": true}), nil
+			default:
+				return nil, fmt.Errorf("unexpected request URL: %s", req.URL.String())
+			}
+		}),
+	}
+
+	if err := adapter.sendStreamingMessage(context.Background(), "42", func(onChunk func(chunk string) error) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("sendStreamingMessage failed: %v", err)
+	}
+	if atomic.LoadInt32(&sendCalls) != 1 {
+		t.Fatalf("expected placeholder message to be sent once, got %d", sendCalls)
+	}
+	if atomic.LoadInt32(&deleteCalls) != 1 {
+		t.Fatalf("expected placeholder message to be deleted once, got %d", deleteCalls)
+	}
+	if atomic.LoadInt32(&editCalls) != 0 {
+		t.Fatalf("expected no empty edit request, got %d", editCalls)
+	}
+}
+
+func TestTelegramSendStreamingMessageDeletesPlaceholderWhenStreamFailsWithoutChunks(t *testing.T) {
+	var (
+		sendCalls   int32
+		deleteCalls int32
+		editCalls   int32
+	)
+
+	adapter := NewTelegramAdapter(config.TelegramChannelConfig{
+		Enabled:   true,
+		BotToken:  "token",
+		PollEvery: 1,
+	}, nil)
+
+	adapter.client = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			switch {
+			case strings.Contains(req.URL.String(), "/sendMessage"):
+				atomic.AddInt32(&sendCalls, 1)
+				return jsonResponse(http.StatusOK, map[string]any{
+					"ok": true,
+					"result": map[string]any{
+						"message_id": 15,
+					},
+				}), nil
+			case strings.Contains(req.URL.String(), "/deleteMessage"):
+				atomic.AddInt32(&deleteCalls, 1)
+				return jsonResponse(http.StatusOK, map[string]any{"ok": true}), nil
+			case strings.Contains(req.URL.String(), "/editMessageText"):
+				atomic.AddInt32(&editCalls, 1)
+				return jsonResponse(http.StatusOK, map[string]any{"ok": true}), nil
+			default:
+				return nil, fmt.Errorf("unexpected request URL: %s", req.URL.String())
+			}
+		}),
+	}
+
+	wantErr := fmt.Errorf("stream failed")
+	err := adapter.sendStreamingMessage(context.Background(), "42", func(onChunk func(chunk string) error) error {
+		return wantErr
+	})
+	if err == nil || !strings.Contains(err.Error(), wantErr.Error()) {
+		t.Fatalf("expected original stream error, got %v", err)
+	}
+	if atomic.LoadInt32(&sendCalls) != 1 {
+		t.Fatalf("expected placeholder message to be sent once, got %d", sendCalls)
+	}
+	if atomic.LoadInt32(&deleteCalls) != 1 {
+		t.Fatalf("expected placeholder message to be deleted once, got %d", deleteCalls)
+	}
+	if atomic.LoadInt32(&editCalls) != 0 {
+		t.Fatalf("expected no empty edit request, got %d", editCalls)
 	}
 }
 
@@ -291,6 +549,82 @@ func TestWhatsAppHandleInboundRetriesMessageUntilSendSucceeds(t *testing.T) {
 	}
 	if !adapter.hasSeen("wamid.1") {
 		t.Fatal("expected message to be marked seen after successful send")
+	}
+}
+
+func TestWhatsAppHandleInboundDeduplicatesConcurrentMessages(t *testing.T) {
+	var (
+		handleCalls atomic.Int32
+		sendCalls   atomic.Int32
+	)
+
+	adapter := NewWhatsAppAdapter(config.WhatsAppChannelConfig{
+		Enabled:       true,
+		AccessToken:   "token",
+		PhoneNumberID: "12345",
+	}, nil)
+
+	adapter.client = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			sendCalls.Add(1)
+			return jsonResponse(http.StatusOK, map[string]any{"messages": []map[string]any{{"id": "wamid.concurrent"}}}), nil
+		}),
+	}
+
+	const workers = 8
+	start := make(chan struct{})
+	entered := make(chan struct{}, workers)
+	release := make(chan struct{})
+	errs := make(chan error, workers)
+
+	var wg sync.WaitGroup
+	run := func() {
+		defer wg.Done()
+		<-start
+		_, _, err := adapter.HandleInbound(context.Background(), "+8613800000000", "hello", "wamid.concurrent", "alice", func(ctx context.Context, sessionID string, message string, meta map[string]string) (string, string, error) {
+			handleCalls.Add(1)
+			entered <- struct{}{}
+			<-release
+			return "session-1", "ok", nil
+		})
+		errs <- err
+	}
+
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go run()
+	}
+	close(start)
+
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("expected at least one inbound handler call")
+	}
+
+	select {
+	case <-entered:
+		t.Fatal("expected duplicate deliveries to be skipped while first message is in flight")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(release)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("expected concurrent duplicate handling to succeed, got %v", err)
+		}
+	}
+	if handleCalls.Load() != 1 {
+		t.Fatalf("expected one handler invocation, got %d", handleCalls.Load())
+	}
+	if sendCalls.Load() != 1 {
+		t.Fatalf("expected one outbound send, got %d", sendCalls.Load())
+	}
+	if !adapter.hasSeen("wamid.concurrent") {
+		t.Fatal("expected concurrent message to remain reserved after success")
 	}
 }
 

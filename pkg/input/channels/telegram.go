@@ -164,11 +164,13 @@ func (a *TelegramAdapter) pollOnce(ctx context.Context, runMessage inputlayer.In
 		}
 
 		var messageType string
-		var audioURL string
+		var audioRef string
+		var audioFileID string
 		var audioMIME string
 
 		if update.Message.Voice != nil {
 			messageType = "voice_note"
+			audioFileID = strings.TrimSpace(update.Message.Voice.FileID)
 			audioMIME = update.Message.Voice.MimeType
 			if audioMIME == "" {
 				audioMIME = "audio/ogg"
@@ -177,34 +179,37 @@ func (a *TelegramAdapter) pollOnce(ctx context.Context, runMessage inputlayer.In
 			if err != nil {
 				return err
 			}
-			audioURL = fileURL
+			audioRef = fileURL
 		} else if update.Message.Audio != nil {
 			messageType = "audio_file"
+			audioFileID = strings.TrimSpace(update.Message.Audio.FileID)
 			audioMIME = update.Message.Audio.MimeType
 			fileURL, err := a.getFileURL(ctx, update.Message.Audio.FileID)
 			if err != nil {
 				return err
 			}
-			audioURL = fileURL
+			audioRef = fileURL
 		} else if update.Message.Document != nil && strings.HasPrefix(update.Message.Document.MimeType, "audio/") {
 			messageType = "audio_file"
+			audioFileID = strings.TrimSpace(update.Message.Document.FileID)
 			audioMIME = update.Message.Document.MimeType
 			fileURL, err := a.getFileURL(ctx, update.Message.Document.FileID)
 			if err != nil {
 				return err
 			}
-			audioURL = fileURL
+			audioRef = fileURL
 		}
 
 		if messageType != "" {
 			meta["message_type"] = messageType
-			meta["audio_url"] = audioURL
+			meta["audio_ref"] = audioRef
+			meta["audio_file_id"] = audioFileID
 			meta["audio_mime"] = audioMIME
 			if caption != "" {
 				meta["caption"] = caption
 			}
 
-			sessionID, response, err := runMessage(ctx, "", audioURL, meta)
+			sessionID, response, err := runMessage(ctx, "", audioRef, meta)
 			if err != nil {
 				return err
 			}
@@ -214,10 +219,11 @@ func (a *TelegramAdapter) pollOnce(ctx context.Context, runMessage inputlayer.In
 			a.offset = nextOffset
 			a.base.MarkActivity()
 			a.append("channel.telegram.voice", sessionID, map[string]any{
-				"chat_id":      chatID,
-				"message_type": messageType,
-				"audio_url":    audioURL,
-				"audio_mime":   audioMIME,
+				"chat_id":       chatID,
+				"message_type":  messageType,
+				"audio_ref":     audioRef,
+				"audio_file_id": audioFileID,
+				"audio_mime":    audioMIME,
 			})
 			continue
 		}
@@ -245,37 +251,12 @@ func (a *TelegramAdapter) pollOnce(ctx context.Context, runMessage inputlayer.In
 }
 
 func (a *TelegramAdapter) getFileURL(ctx context.Context, fileID string) (string, error) {
-	u := fmt.Sprintf("%s/getFile?file_id=%s", a.baseURL, url.QueryEscape(fileID))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return "", err
+	_ = ctx
+	fileID = strings.TrimSpace(fileID)
+	if fileID == "" {
+		return "", fmt.Errorf("telegram: missing file id")
 	}
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		OK          bool   `json:"ok"`
-		Description string `json:"description"`
-		Result      struct {
-			FileID   string `json:"file_id"`
-			FileSize int    `json:"file_size"`
-			FilePath string `json:"file_path"`
-		} `json:"result"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
-	}
-	if !result.OK || result.Result.FilePath == "" {
-		if strings.TrimSpace(result.Description) != "" {
-			return "", fmt.Errorf("telegram: %s", result.Description)
-		}
-		return "", fmt.Errorf("telegram: failed to get file URL for %s", fileID)
-	}
-
-	return fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", a.config.BotToken, result.Result.FilePath), nil
+	return "telegram-file:" + fileID, nil
 }
 
 func (a *TelegramAdapter) append(eventType string, sessionID string, payload map[string]any) {
@@ -367,6 +348,12 @@ func (a *TelegramAdapter) sendStreamingMessage(ctx context.Context, chatID strin
 		mu.Lock()
 		final := accumulated.String()
 		mu.Unlock()
+		if strings.TrimSpace(final) == "" {
+			if deleteErr := a.deleteMessage(ctx, chatID, initialMsgID); deleteErr != nil {
+				return errors.Join(err, deleteErr)
+			}
+			return err
+		}
 		if editErr := a.editMessage(ctx, chatID, initialMsgID, final+"\n\n[Error: "+err.Error()+"]"); editErr != nil {
 			return errors.Join(err, editErr)
 		}
@@ -376,6 +363,9 @@ func (a *TelegramAdapter) sendStreamingMessage(ctx context.Context, chatID strin
 	mu.Lock()
 	final := accumulated.String()
 	mu.Unlock()
+	if strings.TrimSpace(final) == "" {
+		return a.deleteMessage(ctx, chatID, initialMsgID)
+	}
 	return a.editMessage(ctx, chatID, initialMsgID, final)
 }
 
@@ -453,6 +443,42 @@ func (a *TelegramAdapter) editMessage(ctx context.Context, chatID string, messag
 			return fmt.Errorf("telegram edit failed: api returned ok=false")
 		}
 		return fmt.Errorf("telegram edit failed: %s", result.Description)
+	}
+	return nil
+}
+
+func (a *TelegramAdapter) deleteMessage(ctx context.Context, chatID string, messageID string) error {
+	if strings.TrimSpace(messageID) == "" {
+		return nil
+	}
+	values := url.Values{}
+	values.Set("chat_id", chatID)
+	values.Set("message_id", messageID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+"/deleteMessage", strings.NewReader(values.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("telegram delete failed: %s", resp.Status)
+	}
+	var result struct {
+		OK          bool   `json:"ok"`
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return err
+	}
+	if !result.OK {
+		if strings.TrimSpace(result.Description) == "" {
+			return fmt.Errorf("telegram delete failed: api returned ok=false")
+		}
+		return fmt.Errorf("telegram delete failed: %s", result.Description)
 	}
 	return nil
 }
@@ -576,10 +602,12 @@ func (a *TelegramAdapter) pollOnceStream(ctx context.Context, handle inputlayer.
 		}
 
 		var messageType string
-		var audioURL string
+		var audioRef string
+		var audioFileID string
 		var audioMIME string
 		if update.Message.Voice != nil {
 			messageType = "voice_note"
+			audioFileID = strings.TrimSpace(update.Message.Voice.FileID)
 			audioMIME = update.Message.Voice.MimeType
 			if audioMIME == "" {
 				audioMIME = "audio/ogg"
@@ -588,35 +616,38 @@ func (a *TelegramAdapter) pollOnceStream(ctx context.Context, handle inputlayer.
 			if err != nil {
 				return err
 			}
-			audioURL = fileURL
+			audioRef = fileURL
 		} else if update.Message.Audio != nil {
 			messageType = "audio_file"
+			audioFileID = strings.TrimSpace(update.Message.Audio.FileID)
 			audioMIME = update.Message.Audio.MimeType
 			fileURL, err := a.getFileURL(ctx, update.Message.Audio.FileID)
 			if err != nil {
 				return err
 			}
-			audioURL = fileURL
+			audioRef = fileURL
 		} else if update.Message.Document != nil && strings.HasPrefix(update.Message.Document.MimeType, "audio/") {
 			messageType = "audio_file"
+			audioFileID = strings.TrimSpace(update.Message.Document.FileID)
 			audioMIME = update.Message.Document.MimeType
 			fileURL, err := a.getFileURL(ctx, update.Message.Document.FileID)
 			if err != nil {
 				return err
 			}
-			audioURL = fileURL
+			audioRef = fileURL
 		}
 
 		if messageType != "" {
 			meta["message_type"] = messageType
-			meta["audio_url"] = audioURL
+			meta["audio_ref"] = audioRef
+			meta["audio_file_id"] = audioFileID
 			meta["audio_mime"] = audioMIME
 			if caption != "" {
 				meta["caption"] = caption
 			}
 
 			var response strings.Builder
-			sessionID, err := handle(ctx, "", audioURL, meta, func(chunk string) error {
+			sessionID, err := handle(ctx, "", audioRef, meta, func(chunk string) error {
 				response.WriteString(chunk)
 				return nil
 			})
@@ -629,11 +660,12 @@ func (a *TelegramAdapter) pollOnceStream(ctx context.Context, handle inputlayer.
 			a.offset = nextOffset
 			a.base.MarkActivity()
 			a.append("channel.telegram.voice", sessionID, map[string]any{
-				"chat_id":      chatID,
-				"message_type": messageType,
-				"audio_url":    audioURL,
-				"audio_mime":   audioMIME,
-				"streaming":    true,
+				"chat_id":       chatID,
+				"message_type":  messageType,
+				"audio_ref":     audioRef,
+				"audio_file_id": audioFileID,
+				"audio_mime":    audioMIME,
+				"streaming":     true,
 			})
 			continue
 		}

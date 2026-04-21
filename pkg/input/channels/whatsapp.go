@@ -57,7 +57,7 @@ func (a *WhatsAppAdapter) HandleInbound(ctx context.Context, source string, text
 }
 
 func (a *WhatsAppAdapter) HandleInboundWithMeta(ctx context.Context, source string, text string, messageID string, profileName string, meta map[string]string, handle inputlayer.InboundHandler) (string, string, error) {
-	if a.hasSeen(messageID) {
+	if !a.reserveMessage(messageID) {
 		return "", "", nil
 	}
 
@@ -73,12 +73,13 @@ func (a *WhatsAppAdapter) HandleInboundWithMeta(ctx context.Context, source stri
 
 	sessionID, response, err := handle(ctx, "", text, meta)
 	if err != nil {
+		a.releaseMessage(messageID)
 		return "", "", err
 	}
 	if err := a.sendMessage(ctx, source, response); err != nil {
+		a.releaseMessage(messageID)
 		return "", "", err
 	}
-	a.markSeen(messageID)
 	a.base.MarkActivity()
 	a.append("channel.whatsapp.message", sessionID, map[string]any{
 		"source": source,
@@ -164,21 +165,31 @@ func (a *WhatsAppAdapter) hasSeen(id string) bool {
 	return ok
 }
 
-func (a *WhatsAppAdapter) markSeen(id string) {
+func (a *WhatsAppAdapter) reserveMessage(id string) bool {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return true
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.pruneSeenLocked()
+	if _, ok := a.processed[id]; ok {
+		return false
+	}
+	a.processed[id] = time.Now().UTC()
+	return true
+}
+
+func (a *WhatsAppAdapter) releaseMessage(id string) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.pruneSeenLocked()
-	a.processed[id] = time.Now().UTC()
+	delete(a.processed, id)
 }
 
 func (a *WhatsAppAdapter) seen(id string) bool {
-	if a.hasSeen(id) {
-		return true
-	}
-	a.markSeen(id)
-	return false
+	return !a.reserveMessage(id)
 }
