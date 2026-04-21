@@ -76,7 +76,7 @@ func (s *Service) DecideChannel(req ChannelRequest) SessionRoute {
 	if err != nil {
 		return SessionRoute{}
 	}
-	return s.router.Decide(routeRequestFromMainRequest(request)).LegacySessionRoute()
+	return s.router.Decide(routeRequestFromMainRequest(&request)).LegacySessionRoute()
 }
 
 // Route executes the ingress route chain: M1 projector, M2 agent resolution, M3 session resolution, and M4 delivery resolution.
@@ -91,7 +91,7 @@ func (s *Service) Route(ctx context.Context, input RouteInput) (RouteOutput, err
 	if err != nil {
 		return RouteOutput{}, err
 	}
-	agentResolution, sessionDecision, err := s.agents.Resolve(request)
+	agentResolution, sessionDecision, err := s.agents.Resolve(&request)
 	if err != nil {
 		return RouteOutput{}, err
 	}
