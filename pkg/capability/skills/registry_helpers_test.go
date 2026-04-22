@@ -1,7 +1,10 @@
 package skills
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,6 +49,32 @@ func TestConvertMarkdownToSkillJSONUsesDetailFallbacks(t *testing.T) {
 	}
 	if got.Prompts["system"] != "fetch forecast Always answer clearly." {
 		t.Fatalf("unexpected system prompt: %q", got.Prompts["system"])
+	}
+}
+
+func TestSearchSkillhubCatalogUsesUnifiedInstallHint(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"results":[{"displayName":"Weather Helper","slug":"weather","summary":"Forecast support","version":"1.2.3"}]}`))
+	}))
+	defer server.Close()
+
+	originalSearchURL := SKILLHUB_SEARCH_URL
+	SKILLHUB_SEARCH_URL = server.URL
+	t.Cleanup(func() {
+		SKILLHUB_SEARCH_URL = originalSearchURL
+	})
+
+	entries, err := SearchSkillhubCatalog(context.Background(), "weather", 5)
+	if err != nil {
+		t.Fatalf("SearchSkillhubCatalog returned error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].InstallHint != "anyclaw skill install weather" {
+		t.Fatalf("unexpected install hint: %q", entries[0].InstallHint)
 	}
 }
 

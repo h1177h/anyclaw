@@ -21,6 +21,7 @@ type skillFileDefinition struct {
 	Name           string            `json:"name"`
 	Description    string            `json:"description"`
 	Version        string            `json:"version"`
+	Category       string            `json:"category,omitempty"`
 	Source         string            `json:"source,omitempty"`
 	Registry       string            `json:"registry,omitempty"`
 	Homepage       string            `json:"homepage,omitempty"`
