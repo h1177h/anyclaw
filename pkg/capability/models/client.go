@@ -615,12 +615,14 @@ func (w *ClientWrapper) SetAPIKey(apiKey string) error {
 	return w.initClient()
 }
 
-func (w *ClientWrapper) SetTemperature(temp float64) {
+func (w *ClientWrapper) SetTemperature(temp float64) error {
 	w.temperature = temp
+	return w.initClient()
 }
 
-func (w *ClientWrapper) SetBaseURL(url string) {
+func (w *ClientWrapper) SetBaseURL(url string) error {
 	w.baseURL = url
+	return w.initClient()
 }
 
 func serializeMessagesOpenAI(messages []Message) []map[string]any {
