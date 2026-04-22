@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	llm "github.com/1024XEngineer/anyclaw/pkg/capability/models"
 	"github.com/1024XEngineer/anyclaw/pkg/config"
 )
 
@@ -32,7 +31,19 @@ func ProviderOptions() []ProviderOption {
 }
 
 func CanonicalProvider(provider string) string {
-	return llm.NormalizeProviderName(provider)
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	switch {
+	case strings.Contains(provider, "qwen"), strings.Contains(provider, "dashscope"), strings.Contains(provider, "alibaba"):
+		return "qwen"
+	case strings.Contains(provider, "anthropic"), strings.Contains(provider, "claude"):
+		return "anthropic"
+	case strings.Contains(provider, "ollama"):
+		return "ollama"
+	case strings.Contains(provider, "compatible"):
+		return "compatible"
+	default:
+		return "openai"
+	}
 }
 
 func DefaultModelForProvider(provider string) string {
@@ -79,7 +90,7 @@ func ProviderHint(provider string) string {
 }
 
 func ProviderNeedsAPIKey(provider string) bool {
-	return llm.ProviderRequiresAPIKey(provider)
+	return CanonicalProvider(provider) != "ollama"
 }
 
 func DefaultBaseURLForProvider(provider string) string {

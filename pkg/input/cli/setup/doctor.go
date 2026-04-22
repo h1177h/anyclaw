@@ -2,23 +2,22 @@ package setup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
-	llm "github.com/1024XEngineer/anyclaw/pkg/capability/models"
-	"github.com/1024XEngineer/anyclaw/pkg/capability/skills"
 	"github.com/1024XEngineer/anyclaw/pkg/config"
-	"github.com/1024XEngineer/anyclaw/pkg/extensions/plugin"
 	inputlayer "github.com/1024XEngineer/anyclaw/pkg/input"
-	"github.com/1024XEngineer/anyclaw/pkg/workspace"
 )
 
 type Severity string
@@ -317,7 +316,7 @@ func checkWorkspaceBootstrap(report *Report, workingDir string) {
 	if strings.TrimSpace(workingDir) == "" {
 		return
 	}
-	files, err := workspace.LoadBootstrapFiles(workingDir, workspace.BootstrapOptions{})
+	files, err := loadBootstrapFiles(workingDir, defaultBootstrapMaxChars)
 	if err != nil {
 		report.Add(CheckResult{
 			ID:       "workspace-bootstrap",
@@ -412,24 +411,18 @@ func checkProviderConnectivity(ctx context.Context, report *Report, cfg *config.
 
 	testCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
-	client, err := llm.NewClient(llm.Config{
-		Provider:    target.Provider,
-		Model:       target.Model,
-		APIKey:      target.APIKey,
-		BaseURL:     target.BaseURL,
-		MaxTokens:   32,
-		Temperature: 0,
-	})
+	req, err := newProviderProbeRequest(testCtx, target)
 	if err != nil {
 		report.Add(CheckResult{
 			ID:       "provider-connectivity",
 			Title:    "Model connectivity",
 			Severity: SeverityError,
-			Message:  fmt.Sprintf("Unable to initialize the provider client: %v", err),
+			Message:  fmt.Sprintf("Unable to prepare the provider probe: %v", err),
 		})
 		return
 	}
-	_, err = client.Chat(testCtx, []llm.Message{{Role: "user", Content: "Reply with OK."}}, nil)
+
+	resp, err := (&http.Client{Timeout: 12 * time.Second}).Do(req)
 	if err != nil {
 		report.Add(CheckResult{
 			ID:       "provider-connectivity",
@@ -441,6 +434,24 @@ func checkProviderConnectivity(ctx context.Context, report *Report, cfg *config.
 		})
 		return
 	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		detail := fmt.Sprintf("HTTP %d", resp.StatusCode)
+		if body := readDoctorBody(resp); body != "" {
+			detail = detail + ": " + trimDoctorDetail(body)
+		}
+		report.Add(CheckResult{
+			ID:       "provider-connectivity",
+			Title:    "Model connectivity",
+			Severity: SeverityError,
+			Message:  fmt.Sprintf("Connectivity test failed for %s / %s.", ProviderLabel(target.Provider), target.Model),
+			Detail:   detail,
+			Hint:     "Check the API key, model name, base URL, and outbound network access.",
+		})
+		return
+	}
+
 	report.Add(CheckResult{
 		ID:       "provider-connectivity",
 		Title:    "Model connectivity",
@@ -450,8 +461,8 @@ func checkProviderConnectivity(ctx context.Context, report *Report, cfg *config.
 }
 
 func checkSkills(report *Report, cfg *config.Config, skillsDir string) {
-	manager := skills.NewSkillsManager(skillsDir)
-	if err := manager.Load(); err != nil {
+	available, err := discoverSkillNames(skillsDir)
+	if err != nil {
 		report.Add(CheckResult{
 			ID:       "skills-load",
 			Title:    "Skills loading",
@@ -466,16 +477,13 @@ func checkSkills(report *Report, cfg *config.Config, skillsDir string) {
 			ID:       "skills-load",
 			Title:    "Skills loading",
 			Severity: SeverityInfo,
-			Message:  fmt.Sprintf("%d skill(s) available.", len(manager.List())),
+			Message:  fmt.Sprintf("%d skill(s) available.", len(available)),
 		})
 		return
 	}
-	loaded := make(map[string]struct{}, len(manager.List()))
-	for _, skill := range manager.List() {
-		if skill == nil {
-			continue
-		}
-		loaded[strings.ToLower(strings.TrimSpace(skill.Name))] = struct{}{}
+	loaded := make(map[string]struct{}, len(available))
+	for _, name := range available {
+		loaded[strings.ToLower(strings.TrimSpace(name))] = struct{}{}
 	}
 	missing := make([]string, 0)
 	for _, name := range configured {
@@ -488,7 +496,7 @@ func checkSkills(report *Report, cfg *config.Config, skillsDir string) {
 			ID:       "skills-load",
 			Title:    "Skills loading",
 			Severity: SeverityInfo,
-			Message:  fmt.Sprintf("Configured skills are present (%d loaded).", len(manager.List())),
+			Message:  fmt.Sprintf("Configured skills are present (%d discovered).", len(available)),
 		})
 		return
 	}
@@ -502,14 +510,7 @@ func checkSkills(report *Report, cfg *config.Config, skillsDir string) {
 }
 
 func checkPlugins(report *Report, cfg *config.Config, pluginsDir string) {
-	registry, err := plugin.NewRegistry(config.PluginsConfig{
-		Dir:                pluginsDir,
-		Enabled:            append([]string(nil), cfg.Plugins.Enabled...),
-		AllowExec:          cfg.Plugins.AllowExec,
-		ExecTimeoutSeconds: cfg.Plugins.ExecTimeoutSeconds,
-		TrustedSigners:     append([]string(nil), cfg.Plugins.TrustedSigners...),
-		RequireTrust:       cfg.Plugins.RequireTrust,
-	})
+	manifests, err := discoverPluginNames(pluginsDir)
 	if err != nil {
 		report.Add(CheckResult{
 			ID:       "plugins-load",
@@ -519,10 +520,9 @@ func checkPlugins(report *Report, cfg *config.Config, pluginsDir string) {
 		})
 		return
 	}
-	manifests := registry.List()
 	found := make(map[string]struct{}, len(manifests))
-	for _, manifest := range manifests {
-		found[strings.ToLower(strings.TrimSpace(manifest.Name))] = struct{}{}
+	for _, name := range manifests {
+		found[strings.ToLower(strings.TrimSpace(name))] = struct{}{}
 	}
 	missing := make([]string, 0)
 	for _, name := range cfg.Plugins.Enabled {
@@ -550,6 +550,140 @@ func checkPlugins(report *Report, cfg *config.Config, pluginsDir string) {
 		Message:  fmt.Sprintf("Configured plugins not found on disk: %s", strings.Join(missing, ", ")),
 		Hint:     "Install the missing plugins or remove them from plugins.enabled.",
 	})
+}
+
+func newProviderProbeRequest(ctx context.Context, target providerTarget) (*http.Request, error) {
+	provider := CanonicalProvider(target.Provider)
+	baseURL := strings.TrimRight(strings.TrimSpace(target.BaseURL), "/")
+	if baseURL == "" {
+		baseURL = strings.TrimRight(DefaultBaseURLForProvider(provider), "/")
+	}
+
+	switch provider {
+	case "anthropic":
+		payload := map[string]any{
+			"max_tokens": 1,
+			"messages": []map[string]string{
+				{
+					"role":    "user",
+					"content": "Reply with OK.",
+				},
+			},
+			"model": target.Model,
+		}
+		body, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/messages", strings.NewReader(string(body)))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("anthropic-version", "2023-06-01")
+		if strings.TrimSpace(target.APIKey) != "" {
+			req.Header.Set("x-api-key", strings.TrimSpace(target.APIKey))
+		}
+		return req, nil
+	default:
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/models", nil)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(target.APIKey) != "" {
+			req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(target.APIKey))
+		}
+		return req, nil
+	}
+}
+
+func readDoctorBody(resp *http.Response) string {
+	if resp == nil || resp.Body == nil {
+		return ""
+	}
+	const maxBody = 512
+	buf := make([]byte, maxBody)
+	n, _ := resp.Body.Read(buf)
+	return strings.TrimSpace(string(buf[:n]))
+}
+
+func discoverSkillNames(skillsDir string) ([]string, error) {
+	entries, err := os.ReadDir(skillsDir)
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		name := strings.TrimSpace(entry.Name())
+		if entry.IsDir() {
+			key := strings.ToLower(name)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			names = append(names, name)
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".md" && ext != ".json" {
+			continue
+		}
+		stem := strings.TrimSpace(strings.TrimSuffix(name, filepath.Ext(name)))
+		if stem == "" {
+			continue
+		}
+		key := strings.ToLower(stem)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		names = append(names, stem)
+	}
+
+	sort.Strings(names)
+	return names, nil
+}
+
+func discoverPluginNames(pluginsDir string) ([]string, error) {
+	entries, err := os.ReadDir(pluginsDir)
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		dir := filepath.Join(pluginsDir, entry.Name())
+		if !hasPluginManifest(dir) {
+			continue
+		}
+		names = append(names, entry.Name())
+	}
+
+	sort.Strings(names)
+	return names, nil
+}
+
+func hasPluginManifest(dir string) bool {
+	candidates := []string{
+		"plugin.json",
+		"anyclaw.plugin.json",
+		"openclaw.plugin.json",
+		filepath.Join(".codex-plugin", "plugin.json"),
+	}
+	for _, candidate := range candidates {
+		if fileExists(filepath.Join(dir, candidate)) {
+			return true
+		}
+	}
+	return false
 }
 
 func checkGatewayPort(report *Report, cfg *config.Config) {

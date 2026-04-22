@@ -10,7 +10,6 @@ import (
 
 	"github.com/1024XEngineer/anyclaw/pkg/config"
 	"github.com/1024XEngineer/anyclaw/pkg/input/cli/consoleio"
-	"github.com/1024XEngineer/anyclaw/pkg/workspace"
 )
 
 type OnboardOptions struct {
@@ -295,7 +294,7 @@ func prepareRuntimePaths(configPath string, cfg *config.Config) error {
 			return err
 		}
 	}
-	return workspace.EnsureBootstrap(workingDir, workspace.BootstrapOptions{
+	return ensureBootstrapFiles(workingDir, bootstrapSeed{
 		AgentName:        cfg.Agent.Name,
 		AgentDescription: cfg.Agent.Description,
 		UserProfile:      bootstrapUserProfile(cfg),
