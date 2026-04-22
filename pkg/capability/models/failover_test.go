@@ -14,6 +14,7 @@ type stubFailoverClient struct {
 	chatErrs      []error
 	streamErrs    []error
 	streamContent []string
+	streamErrAfterChunks bool
 	chatCalls     int
 	streamCalls   int
 }
@@ -33,7 +34,7 @@ func (s *stubFailoverClient) Chat(_ context.Context, _ []Message, _ []ToolDefini
 
 func (s *stubFailoverClient) StreamChat(_ context.Context, _ []Message, _ []ToolDefinition, onChunk func(string)) error {
 	s.streamCalls++
-	if len(s.streamErrs) > 0 {
+	if len(s.streamErrs) > 0 && !s.streamErrAfterChunks {
 		err := s.streamErrs[0]
 		s.streamErrs = s.streamErrs[1:]
 		if err != nil {
@@ -42,6 +43,13 @@ func (s *stubFailoverClient) StreamChat(_ context.Context, _ []Message, _ []Tool
 	}
 	for _, chunk := range s.streamContent {
 		onChunk(chunk)
+	}
+	if len(s.streamErrs) > 0 && s.streamErrAfterChunks {
+		err := s.streamErrs[0]
+		s.streamErrs = s.streamErrs[1:]
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -136,6 +144,39 @@ func TestFailoverStreamChatFallsBack(t *testing.T) {
 	}
 	if strings.Join(chunks, "") != "hello world" {
 		t.Fatalf("unexpected streamed content: %q", strings.Join(chunks, ""))
+	}
+}
+
+func TestFailoverStreamChatDoesNotFallbackAfterPartialOutput(t *testing.T) {
+	primary := &stubFailoverClient{
+		name:                 "primary",
+		streamContent:        []string{"partial"},
+		streamErrs:           []error{errors.New("upstream stream reset")},
+		streamErrAfterChunks: true,
+	}
+	fallback := &stubFailoverClient{
+		name:          "fallback",
+		streamContent: []string{"replacement"},
+	}
+
+	client := NewFailoverClient(primary, FailoverConfig{Enabled: true})
+	client.AddFallback(fallback)
+
+	var chunks []string
+	err := client.StreamChat(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, func(chunk string) {
+		chunks = append(chunks, chunk)
+	})
+	if err == nil {
+		t.Fatal("expected partial-output stream failure to be returned")
+	}
+	if !strings.Contains(err.Error(), "partial output") {
+		t.Fatalf("expected partial output error, got %v", err)
+	}
+	if strings.Join(chunks, "") != "partial" {
+		t.Fatalf("expected only primary partial output, got %q", strings.Join(chunks, ""))
+	}
+	if fallback.streamCalls != 0 {
+		t.Fatalf("expected fallback not to be called after partial output, got %d calls", fallback.streamCalls)
 	}
 }
 
