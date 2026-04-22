@@ -14,6 +14,7 @@ type stubExecutor struct {
 	output  string
 	err     error
 	blockCh chan struct{}
+	started chan struct{}
 	calls   int
 }
 
@@ -23,7 +24,16 @@ func (s *stubExecutor) Execute(ctx context.Context, cmd string, input map[string
 	blockCh := s.blockCh
 	output := s.output
 	err := s.err
+	started := s.started
 	s.mu.Unlock()
+
+	if started != nil {
+		select {
+		case <-started:
+		default:
+			close(started)
+		}
+	}
 
 	if blockCh != nil {
 		select {
@@ -34,6 +44,16 @@ func (s *stubExecutor) Execute(ctx context.Context, cmd string, input map[string
 	}
 	return output, err
 }
+
+type failingPersister struct {
+	saveTasksErr error
+	saveRunsErr  error
+}
+
+func (p *failingPersister) SaveTasks(tasks []*Task) error  { return p.saveTasksErr }
+func (p *failingPersister) LoadTasks() ([]*Task, error)    { return nil, nil }
+func (p *failingPersister) SaveRuns(runs []*TaskRun) error { return p.saveRunsErr }
+func (p *failingPersister) LoadRuns() ([]*TaskRun, error)  { return nil, nil }
 
 func TestSchedulerAddTaskAndCopies(t *testing.T) {
 	scheduler := New()
@@ -227,4 +247,109 @@ func TestSchedulerRetryAndStats(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("expected run to fail")
+}
+
+func TestSchedulerUpdateTaskCanDisableTask(t *testing.T) {
+	scheduler := New()
+	taskID, err := scheduler.AddTask(&Task{
+		Name:     "toggle",
+		Schedule: "@hourly",
+		Command:  "echo",
+		Enabled:  true,
+	})
+	if err != nil {
+		t.Fatalf("AddTask failed: %v", err)
+	}
+
+	if err := scheduler.UpdateTask(&Task{
+		ID:       taskID,
+		Name:     "toggle",
+		Schedule: "@hourly",
+		Command:  "echo",
+		Enabled:  false,
+	}); err != nil {
+		t.Fatalf("UpdateTask failed: %v", err)
+	}
+
+	task, ok := scheduler.GetTask(taskID)
+	if !ok {
+		t.Fatalf("GetTask(%s) returned not found", taskID)
+	}
+	if task.Enabled {
+		t.Fatal("expected task to be disabled after update")
+	}
+	if task.NextRun != nil {
+		t.Fatalf("expected disabled task to have nil next run, got %v", *task.NextRun)
+	}
+}
+
+func TestSchedulerDeleteTaskCancelsActiveRun(t *testing.T) {
+	executor := &stubExecutor{
+		blockCh: make(chan struct{}),
+		started: make(chan struct{}),
+	}
+	scheduler := NewScheduler(executor)
+
+	taskID, err := scheduler.AddTask(&Task{
+		Name:     "delete-running",
+		Schedule: "@every 1m",
+		Command:  "sleep",
+		Timeout:  5,
+		Enabled:  true,
+	})
+	if err != nil {
+		t.Fatalf("AddTask failed: %v", err)
+	}
+	if err := scheduler.RunTaskNow(taskID); err != nil {
+		t.Fatalf("RunTaskNow failed: %v", err)
+	}
+
+	select {
+	case <-executor.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected executor to start")
+	}
+
+	if err := scheduler.DeleteTask(taskID); err != nil {
+		t.Fatalf("DeleteTask failed: %v", err)
+	}
+
+	if _, ok := scheduler.GetTask(taskID); ok {
+		t.Fatal("expected task to be deleted")
+	}
+	if runs := scheduler.GetTaskRuns(taskID); len(runs) != 0 {
+		t.Fatalf("expected deleted task runs to be cleared, got %+v", runs)
+	}
+}
+
+func TestSchedulerRecordsPersistenceErrorFromRunSnapshots(t *testing.T) {
+	persister := &failingPersister{saveRunsErr: errors.New("disk full")}
+	scheduler := NewScheduler(nil)
+	scheduler.SetPersister(persister)
+
+	taskID, err := scheduler.AddTask(&Task{
+		Name:     "persist-error",
+		Schedule: "@every 1m",
+		Command:  "echo",
+		Enabled:  true,
+	})
+	if err != nil {
+		t.Fatalf("AddTask failed: %v", err)
+	}
+	if err := scheduler.RunTaskNow(taskID); err != nil {
+		t.Fatalf("RunTaskNow failed: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		runs := scheduler.GetTaskRuns(taskID)
+		if len(runs) > 0 && runs[0].Status == "success" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if err := scheduler.LastPersistenceError(); err == nil || err.Error() != "disk full" {
+		t.Fatalf("expected last persistence error to be recorded, got %v", err)
+	}
 }

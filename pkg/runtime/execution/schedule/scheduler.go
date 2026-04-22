@@ -58,6 +58,7 @@ type Scheduler struct {
 	tasks          map[string]*Task
 	taskRuns       map[string][]*TaskRun
 	activeTaskRuns map[string]string
+	runDone        map[string]chan struct{}
 	executor       Executor
 	running        bool
 	stopCh         chan struct{}
@@ -65,6 +66,7 @@ type Scheduler struct {
 	runHistorySize int
 	cancelFuncs    map[string]context.CancelFunc
 	persister      TaskPersister
+	lastPersistErr error
 }
 
 func New() *Scheduler {
@@ -76,6 +78,7 @@ func NewScheduler(executor Executor) *Scheduler {
 		tasks:          make(map[string]*Task),
 		taskRuns:       make(map[string][]*TaskRun),
 		activeTaskRuns: make(map[string]string),
+		runDone:        make(map[string]chan struct{}),
 		executor:       executor,
 		runHistorySize: 100,
 		cancelFuncs:    make(map[string]context.CancelFunc),
@@ -232,8 +235,10 @@ func (s *Scheduler) AddTask(task *Task) (string, error) {
 
 	if persister != nil {
 		if err := persister.SaveTasks(tasksSnapshot); err != nil {
+			s.recordPersistError(err)
 			return cloned.ID, err
 		}
+		s.recordPersistError(nil)
 	}
 	return cloned.ID, nil
 }
@@ -253,9 +258,6 @@ func (s *Scheduler) UpdateTask(task *Task) error {
 	cloned := cloneTask(task)
 	cloned.CreatedAt = existing.CreatedAt
 	cloned.UpdatedAt = time.Now().UTC()
-	if !cloned.Enabled {
-		cloned.Enabled = existing.Enabled
-	}
 	if cloned.MaxRetries == 0 {
 		cloned.MaxRetries = existing.MaxRetries
 	}
@@ -282,9 +284,13 @@ func (s *Scheduler) UpdateTask(task *Task) error {
 		return err
 	}
 
-	next := calculateNextRun(cloned.Schedule, time.Now().UTC(), cloned.Timezone)
-	if !next.IsZero() {
-		cloned.NextRun = &next
+	if cloned.Enabled {
+		next := calculateNextRun(cloned.Schedule, time.Now().UTC(), cloned.Timezone)
+		if !next.IsZero() {
+			cloned.NextRun = &next
+		}
+	} else {
+		cloned.NextRun = nil
 	}
 	s.tasks[cloned.ID] = cloned
 	tasksSnapshot := cloneTasksFromMap(s.tasks)
@@ -292,7 +298,11 @@ func (s *Scheduler) UpdateTask(task *Task) error {
 	s.mu.Unlock()
 
 	if persister != nil {
-		return persister.SaveTasks(tasksSnapshot)
+		if err := persister.SaveTasks(tasksSnapshot); err != nil {
+			s.recordPersistError(err)
+			return err
+		}
+		s.recordPersistError(nil)
 	}
 	return nil
 }
@@ -302,6 +312,25 @@ func (s *Scheduler) DeleteTask(taskID string) error {
 	if _, ok := s.tasks[taskID]; !ok {
 		s.mu.Unlock()
 		return fmt.Errorf("task not found: %s", taskID)
+	}
+	runID, active := s.activeTaskRuns[taskID]
+	cancel := s.cancelFuncs[runID]
+	done := s.runDone[runID]
+	s.mu.Unlock()
+
+	if active {
+		if cancel != nil {
+			cancel()
+		}
+		if done != nil {
+			<-done
+		}
+	}
+
+	s.mu.Lock()
+	if _, ok := s.tasks[taskID]; !ok {
+		s.mu.Unlock()
+		return nil
 	}
 	delete(s.tasks, taskID)
 	delete(s.taskRuns, taskID)
@@ -313,11 +342,14 @@ func (s *Scheduler) DeleteTask(taskID string) error {
 
 	if persister != nil {
 		if err := persister.SaveTasks(tasksSnapshot); err != nil {
+			s.recordPersistError(err)
 			return err
 		}
 		if err := persister.SaveRuns(runsSnapshot); err != nil {
+			s.recordPersistError(err)
 			return err
 		}
+		s.recordPersistError(nil)
 	}
 	return nil
 }
@@ -370,7 +402,11 @@ func (s *Scheduler) setTaskEnabled(taskID string, enabled bool) error {
 	s.mu.Unlock()
 
 	if persister != nil {
-		return persister.SaveTasks(tasksSnapshot)
+		if err := persister.SaveTasks(tasksSnapshot); err != nil {
+			s.recordPersistError(err)
+			return err
+		}
+		s.recordPersistError(nil)
 	}
 	return nil
 }
@@ -461,7 +497,9 @@ func (s *Scheduler) runTask(taskID string, runID string) {
 		timeout = 5 * time.Minute
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	done := make(chan struct{})
 	s.cancelFuncs[run.ID] = cancel
+	s.runDone[run.ID] = done
 	tasksSnapshot := cloneTasksFromMap(s.tasks)
 	runsSnapshot := cloneRunsFromMap(s.taskRuns)
 	persister := s.persister
@@ -477,6 +515,10 @@ func (s *Scheduler) runTask(taskID string, runID string) {
 		cancel()
 		s.mu.Lock()
 		delete(s.cancelFuncs, run.ID)
+		if ch, ok := s.runDone[run.ID]; ok {
+			close(ch)
+			delete(s.runDone, run.ID)
+		}
 		delete(s.activeTaskRuns, taskID)
 		s.mu.Unlock()
 	}()
@@ -604,7 +646,11 @@ func (s *Scheduler) ClearHistory(taskID string) error {
 	s.mu.Unlock()
 
 	if persister != nil {
-		return persister.SaveRuns(runsSnapshot)
+		if err := persister.SaveRuns(runsSnapshot); err != nil {
+			s.recordPersistError(err)
+			return err
+		}
+		s.recordPersistError(nil)
 	}
 	return nil
 }
@@ -671,6 +717,12 @@ func (s *Scheduler) IsRunning() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.running
+}
+
+func (s *Scheduler) LastPersistenceError() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastPersistErr
 }
 
 func (s *Scheduler) MarshalJSON() ([]byte, error) {
@@ -814,8 +866,21 @@ func (s *Scheduler) persistSnapshots(persister TaskPersister, tasks []*Task, run
 	if persister == nil {
 		return
 	}
-	_ = persister.SaveTasks(tasks)
-	_ = persister.SaveRuns(runs)
+	if err := persister.SaveTasks(tasks); err != nil {
+		s.recordPersistError(err)
+		return
+	}
+	if err := persister.SaveRuns(runs); err != nil {
+		s.recordPersistError(err)
+		return
+	}
+	s.recordPersistError(nil)
+}
+
+func (s *Scheduler) recordPersistError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastPersistErr = err
 }
 
 func (s *Scheduler) findRunLocked(taskID string, runID string) *TaskRun {
