@@ -147,7 +147,8 @@ func (c *VoiceWakeCoordinator) Start(ctx context.Context) error {
 	c.arbitration.RegisterListener(c.onArbitrationResult)
 	c.suppressor.RegisterListener(c.onSuppressionEvent)
 
-	if err := c.startWakeEventListener(); err != nil {
+	conn, done, err := c.startWakeEventListener()
+	if err != nil {
 		c.discovery.Stop()
 		return fmt.Errorf("coordinator: failed to start wake event listener: %w", err)
 	}
@@ -155,6 +156,7 @@ func (c *VoiceWakeCoordinator) Start(ctx context.Context) error {
 	c.isRunning = true
 	c.startTime = time.Now()
 
+	go c.wakeEventListenLoop(conn, done)
 	go c.eventLoop(ctx)
 
 	log.Printf("coordinator: started (device: %s, discovery port: %d, wake port: %d)", c.localID, c.cfg.BroadcastPort, c.wakePort)
@@ -489,7 +491,7 @@ func (c *VoiceWakeCoordinator) ProbeDevices() {
 	}
 }
 
-func (c *VoiceWakeCoordinator) startWakeEventListener() error {
+func (c *VoiceWakeCoordinator) startWakeEventListener() (*net.UDPConn, chan struct{}, error) {
 	port := c.cfg.WakeEventPort
 	if port == 0 {
 		port = 19877
@@ -502,24 +504,21 @@ func (c *VoiceWakeCoordinator) startWakeEventListener() error {
 
 	conn, err := net.ListenUDP("udp4", addr)
 	if err != nil {
-		return fmt.Errorf("failed to bind wake event port %d: %w", port, err)
+		return nil, nil, fmt.Errorf("failed to bind wake event port %d: %w", port, err)
 	}
 
 	c.wakeConn = conn
 	c.wakePort = port
-	c.wakeListenDone = make(chan struct{})
+	done := make(chan struct{})
+	c.wakeListenDone = done
 
-	go c.wakeEventListenLoop()
-
-	return nil
+	return conn, done, nil
 }
 
 func (c *VoiceWakeCoordinator) stopWakeEventListener() {
 	c.mu.Lock()
 	conn := c.wakeConn
 	done := c.wakeListenDone
-	c.wakeConn = nil
-	c.wakeListenDone = nil
 	c.mu.Unlock()
 
 	if conn != nil {
@@ -529,16 +528,24 @@ func (c *VoiceWakeCoordinator) stopWakeEventListener() {
 	if done != nil {
 		<-done
 	}
+
+	c.mu.Lock()
+	if c.wakeConn == conn {
+		c.wakeConn = nil
+	}
+	if c.wakeListenDone == done {
+		c.wakeListenDone = nil
+	}
+	c.mu.Unlock()
 }
 
-func (c *VoiceWakeCoordinator) wakeEventListenLoop() {
-	defer close(c.wakeListenDone)
+func (c *VoiceWakeCoordinator) wakeEventListenLoop(conn *net.UDPConn, done chan struct{}) {
+	defer close(done)
 
 	buf := make([]byte, 8192)
 
 	for {
 		c.mu.Lock()
-		conn := c.wakeConn
 		isRunning := c.isRunning
 		c.mu.Unlock()
 
