@@ -198,6 +198,28 @@ func TestRunPluginCommandNewUsesConfiguredPluginDir(t *testing.T) {
 	}
 }
 
+func TestRunPluginCommandNewRejectsUnsupportedAppKind(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	tempDir := t.TempDir()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("Chdir tempDir: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+
+	err = runPluginCommand([]string{"new", "--name", "demo-app", "--kind", "app"})
+	if err == nil || !strings.Contains(err.Error(), "unsupported plugin kind: app") {
+		t.Fatalf("expected unsupported app kind error, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(tempDir, "plugins", "demo-app")); !os.IsNotExist(statErr) {
+		t.Fatalf("expected unsupported kind to avoid scaffolding files, got %v", statErr)
+	}
+}
+
 func TestRunPluginCommandNewRejectsPathTraversalName(t *testing.T) {
 	wd, err := os.Getwd()
 	if err != nil {
