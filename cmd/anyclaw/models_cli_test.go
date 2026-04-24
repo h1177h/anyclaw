@@ -87,6 +87,55 @@ func TestRunModelsSetUpdatesDefaultProviderModel(t *testing.T) {
 	}
 }
 
+func TestRunModelsSetUsesEffectiveDefaultProviderProfile(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Providers = []config.ProviderProfile{
+		{
+			ID:           "openai-main",
+			Name:         "OpenAI Main",
+			Provider:     "openai",
+			DefaultModel: "gpt-4o-mini",
+			Enabled:      config.BoolPtr(true),
+		},
+	}
+	cfg.LLM.DefaultProviderRef = "openai-main"
+	cfg.LLM.Provider = "qwen"
+	cfg.LLM.Model = "qwen-plus"
+
+	configPath := filepath.Join(t.TempDir(), "anyclaw.json")
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("Save config: %v", err)
+	}
+
+	stdout, _, err := captureCLIOutput(t, func() error {
+		return runModelsSet([]string{"--config", configPath, "gpt-5"})
+	})
+	if err != nil {
+		t.Fatalf("runModelsSet: %v", err)
+	}
+	if !strings.Contains(stdout, "Default model set to gpt-5") {
+		t.Fatalf("unexpected set output: %q", stdout)
+	}
+
+	updated, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load updated config: %v", err)
+	}
+	if updated.LLM.Provider != "openai" {
+		t.Fatalf("expected llm.provider to be aligned to default provider profile, got %q", updated.LLM.Provider)
+	}
+	if updated.LLM.Model != "gpt-5" {
+		t.Fatalf("expected llm.model to be updated, got %q", updated.LLM.Model)
+	}
+	provider, ok := updated.FindDefaultProviderProfile()
+	if !ok {
+		t.Fatalf("expected default provider profile")
+	}
+	if provider.DefaultModel != "gpt-5" {
+		t.Fatalf("expected provider default_model to be updated, got %q", provider.DefaultModel)
+	}
+}
+
 func TestRunModelsStatusJSON(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Providers = []config.ProviderProfile{
@@ -133,6 +182,45 @@ func TestRunModelsStatusJSON(t *testing.T) {
 	}
 	if len(payload.Providers) != 1 || payload.Providers[0].Status != "ready" || !payload.Providers[0].HasAPIKey {
 		t.Fatalf("unexpected providers payload: %#v", payload.Providers)
+	}
+}
+
+func TestRunModelsStatusAppliesDefaultProviderProfile(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Providers = []config.ProviderProfile{
+		{
+			ID:           "openai-main",
+			Name:         "OpenAI Main",
+			Provider:     "openai",
+			DefaultModel: "gpt-4o-mini",
+			APIKey:       "sk-test",
+			Enabled:      config.BoolPtr(true),
+		},
+	}
+	cfg.LLM.DefaultProviderRef = "openai-main"
+	cfg.LLM.Provider = "qwen"
+	cfg.LLM.Model = "qwen-plus"
+
+	configPath := filepath.Join(t.TempDir(), "anyclaw.json")
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("Save config: %v", err)
+	}
+
+	stdout, _, err := captureCLIOutput(t, func() error {
+		return runModelsStatus([]string{"--config", configPath})
+	})
+	if err != nil {
+		t.Fatalf("runModelsStatus: %v", err)
+	}
+	for _, want := range []string{
+		"Current model: gpt-4o-mini",
+		"Provider: openai",
+		"Default provider: OpenAI Main (openai-main)",
+		"runtime=openai model=gpt-4o-mini status=ready",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in status output, got %q", want, stdout)
+		}
 	}
 }
 
@@ -260,6 +348,56 @@ func TestRunModelsListSupportsJSONFilterAndTextCatalog(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "openai") || !strings.Contains(stdout, "qwen") || !strings.Contains(stdout, "gpt-5") {
 		t.Fatalf("unexpected text catalog output: %q", stdout)
+	}
+}
+
+func TestRunModelsListUsesEffectiveDefaultProvider(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Providers = []config.ProviderProfile{
+		{
+			ID:           "openai-main",
+			Name:         "OpenAI Main",
+			Provider:     "openai",
+			DefaultModel: "gpt-4o-mini",
+			Enabled:      config.BoolPtr(true),
+		},
+		{
+			ID:           "qwen-main",
+			Name:         "Qwen Main",
+			Provider:     "qwen",
+			DefaultModel: "qwen-plus",
+			Enabled:      config.BoolPtr(true),
+		},
+	}
+	cfg.LLM.DefaultProviderRef = "openai-main"
+	cfg.LLM.Provider = "qwen"
+	cfg.LLM.Model = "qwen-plus"
+
+	configPath := filepath.Join(t.TempDir(), "anyclaw.json")
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("Save config: %v", err)
+	}
+
+	stdout, _, err := captureCLIOutput(t, func() error {
+		return runModelsList([]string{"--config", configPath, "--json"})
+	})
+	if err != nil {
+		t.Fatalf("runModelsList: %v", err)
+	}
+
+	var payload struct {
+		CurrentProvider string              `json:"current_provider"`
+		CurrentModel    string              `json:"current_model"`
+		Catalog         map[string][]string `json:"catalog"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("Unmarshal models list output: %v\noutput=%s", err, stdout)
+	}
+	if payload.CurrentProvider != "openai" || payload.CurrentModel != "gpt-4o-mini" {
+		t.Fatalf("expected effective provider/model in payload, got %#v", payload)
+	}
+	if !containsString(payload.Catalog["openai"], "gpt-4o-mini") {
+		t.Fatalf("expected effective default model in openai catalog, got %#v", payload.Catalog["openai"])
 	}
 }
 
