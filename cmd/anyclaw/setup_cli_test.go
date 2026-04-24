@@ -108,6 +108,20 @@ func TestRunAnyClawCLIRoutesOnboardAndSetupAlias(t *testing.T) {
 	}
 }
 
+func TestRunAnyClawCLIHelpDocumentsSetupAlias(t *testing.T) {
+	clearModelsCLIEnv(t)
+
+	stdout, _, err := captureCLIOutput(t, func() error {
+		return runAnyClawCLI([]string{"help"})
+	})
+	if err != nil {
+		t.Fatalf("runAnyClawCLI help: %v", err)
+	}
+	if !strings.Contains(stdout, "anyclaw onboard/setup [options]") {
+		t.Fatalf("expected setup alias in help output, got %q", stdout)
+	}
+}
+
 func TestPrintDoctorReportIncludesErrorWarningDetailAndHint(t *testing.T) {
 	report := &setup.Report{}
 	report.Add(setup.CheckResult{

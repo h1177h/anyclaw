@@ -51,7 +51,7 @@ Usage:
   anyclaw plugin <subcommand>         Run plugin management commands
   anyclaw skill <subcommand>          Run skill management commands
   anyclaw doctor [options]            Run configuration diagnostics
-  anyclaw onboard [options]           Run first-run model onboarding
+  anyclaw onboard/setup [options]     Run first-run model onboarding
 `)
 }
 
