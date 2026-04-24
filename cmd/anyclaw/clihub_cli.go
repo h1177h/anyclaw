@@ -56,6 +56,10 @@ Usage:
 Flags:
   --root <path>       Explicit CLI-Anything root
   --workspace <path>  Start discovery from this workspace
+  --cwd <path>        Working directory override for installed executables
+
+Notes:
+  Source harnesses always run from their checkout directory so local module imports resolve correctly.
 `)
 }
 
@@ -401,7 +405,7 @@ func runCLIHubExec(args []string) error {
 	fs.SetOutput(os.Stdout)
 	rootFlag := fs.String("root", "", "explicit CLI-Anything root")
 	workspaceFlag := fs.String("workspace", "", "workspace path used for discovery")
-	cwdFlag := fs.String("cwd", "", "optional working directory override")
+	cwdFlag := fs.String("cwd", "", "working directory override for installed executables")
 	autoInstallFlag := fs.Bool("auto-install", false, "install the harness automatically if needed")
 	jsonFlag := fs.Bool("json", true, "inject --json for agent-style machine-readable output")
 	if err := fs.Parse(reorderFlagArgs(flagArgs, map[string]bool{

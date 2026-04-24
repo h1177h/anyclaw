@@ -17,7 +17,12 @@ func TestCLIHubExecHelperProcess(t *testing.T) {
 		return
 	}
 
-	fmt.Printf("helper args: %s", strings.Join(os.Args[1:], "|"))
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+
+	fmt.Printf("helper cwd: %s\nhelper args: %s", wd, strings.Join(os.Args[1:], "|"))
 	os.Exit(0)
 }
 
@@ -42,6 +47,23 @@ func TestCLIUsageIncludesCLIHubCommand(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "anyclaw clihub <subcommand>") {
 		t.Fatalf("expected clihub help entry, got %q", stdout)
+	}
+}
+
+func TestCLIHubUsageDocumentsCwdBehavior(t *testing.T) {
+	stdout, _, err := captureCLIOutput(t, func() error {
+		return runCLIHubCommand([]string{"help"})
+	})
+	if err != nil {
+		t.Fatalf("runCLIHubCommand help: %v", err)
+	}
+	for _, want := range []string{
+		"--cwd <path>        Working directory override for installed executables",
+		"Source harnesses always run from their checkout directory",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in clihub help, got %q", want, stdout)
+		}
 	}
 }
 
@@ -201,15 +223,44 @@ func TestRunCLIHubCapabilitiesSupportsHarnessAndIntentQueries(t *testing.T) {
 func TestRunCLIHubExecRunsHelperBinary(t *testing.T) {
 	root := writeCLIHubTestRoot(t)
 	t.Setenv("ANYCLAW_CLIHUB_HELPER", "1")
+	cwd := t.TempDir()
 
 	stdout, _, err := captureCLIOutput(t, func() error {
-		return runCLIHubExec([]string{"--root", root, "--json=false", "helper", "--", "-test.run=TestCLIHubExecHelperProcess", "--", "ping"})
+		return runCLIHubExec([]string{"--root", root, "--cwd", cwd, "--json=false", "helper", "--", "-test.run=TestCLIHubExecHelperProcess", "--", "ping"})
 	})
 	if err != nil {
 		t.Fatalf("runCLIHubExec: %v", err)
 	}
-	if !strings.Contains(stdout, "helper args:") || !strings.Contains(stdout, "ping") {
+	if !strings.Contains(stdout, "helper cwd: "+cwd) || !strings.Contains(stdout, "helper args:") || !strings.Contains(stdout, "ping") {
 		t.Fatalf("unexpected exec output: %q", stdout)
+	}
+}
+
+func TestResolveInvocationKeepsSourceHarnessCheckoutAsCwd(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "video-source", "agent-harness")
+	requestedCwd := filepath.Join(t.TempDir(), "workspace")
+
+	args, cwd, err := clihub.ResolveInvocation(clihub.EntryStatus{
+		Entry: clihub.Entry{
+			Name:       "video-source",
+			EntryPoint: "video-source",
+		},
+		Runnable:   true,
+		RunMode:    "source",
+		SourcePath: sourcePath,
+		DevModule:  "cli_anything.editor",
+	}, requestedCwd, clihub.ExecOptions{
+		PreferLocalSrc: true,
+		RequestedCwd:   requestedCwd,
+	})
+	if err != nil {
+		t.Fatalf("ResolveInvocation: %v", err)
+	}
+	if len(args) == 0 {
+		t.Fatalf("expected command args, got %#v", args)
+	}
+	if cwd != sourcePath {
+		t.Fatalf("expected source harness cwd %q, got %q", sourcePath, cwd)
 	}
 }
 
