@@ -103,21 +103,32 @@ func runGatewayDaemon(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: anyclaw gateway daemon <start|stop>")
 	}
-	configPath := "anyclaw.json"
-	if args[0] == "start" {
-		if err := ensureGatewayControlUIBuilt(context.Background(), configPath); err != nil {
+
+	action := strings.TrimSpace(args[0])
+	fs := flag.NewFlagSet("gateway daemon "+action, flag.ContinueOnError)
+	fs.SetOutput(os.Stdout)
+	configPath := fs.String("config", "anyclaw.json", "path to config file")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("usage: anyclaw gateway daemon <start|stop> [--config <path>]")
+	}
+
+	if action == "start" {
+		if err := ensureGatewayControlUIBuilt(context.Background(), *configPath); err != nil {
 			return err
 		}
 	}
 	app, err := bootstrapGatewayRuntime(appRuntime.BootstrapOptions{
-		ConfigPath: configPath,
+		ConfigPath: *configPath,
 	})
 	if err != nil {
 		return fmt.Errorf("daemon bootstrap failed: %w", err)
 	}
-	app.ConfigPath = configPath
+	app.ConfigPath = *configPath
 
-	switch args[0] {
+	switch action {
 	case "start":
 		if err := startGatewayDaemon(app); err != nil {
 			return err
@@ -131,7 +142,7 @@ func runGatewayDaemon(args []string) error {
 		printSuccess("Gateway daemon stopped")
 		return nil
 	default:
-		return fmt.Errorf("unknown daemon command: %s", args[0])
+		return fmt.Errorf("unknown daemon command: %s", action)
 	}
 }
 

@@ -112,8 +112,9 @@ func TestRunGatewayCommandRoutesDaemonSubcommand(t *testing.T) {
 		t.Fatalf("chdir temp dir: %v", err)
 	}
 
+	configPath := filepath.Join(tempDir, "configs", "daemon.json")
 	cfg := config.DefaultConfig()
-	if err := cfg.Save(filepath.Join(tempDir, "anyclaw.json")); err != nil {
+	if err := cfg.Save(configPath); err != nil {
 		t.Fatalf("save daemon config: %v", err)
 	}
 
@@ -131,8 +132,8 @@ func TestRunGatewayCommandRoutesDaemonSubcommand(t *testing.T) {
 	})
 
 	bootstrapGatewayRuntime = func(opts appRuntime.BootstrapOptions) (*appRuntime.MainRuntime, error) {
-		if opts.ConfigPath != "anyclaw.json" {
-			t.Fatalf("expected daemon config path anyclaw.json, got %q", opts.ConfigPath)
+		if opts.ConfigPath != configPath {
+			t.Fatalf("expected daemon config path %q, got %q", configPath, opts.ConfigPath)
 		}
 		return &appRuntime.MainRuntime{Config: config.DefaultConfig(), ConfigPath: opts.ConfigPath}, nil
 	}
@@ -149,7 +150,7 @@ func TestRunGatewayCommandRoutesDaemonSubcommand(t *testing.T) {
 	}
 
 	stdout, _, err := captureCLIOutput(t, func() error {
-		return runGatewayCommand(context.Background(), []string{"daemon", "start"})
+		return runGatewayCommand(context.Background(), []string{"daemon", "start", "--config", configPath})
 	})
 	if err != nil {
 		t.Fatalf("runGatewayCommand daemon start: %v", err)
@@ -159,13 +160,22 @@ func TestRunGatewayCommandRoutesDaemonSubcommand(t *testing.T) {
 	}
 
 	stdout, _, err = captureCLIOutput(t, func() error {
-		return runGatewayCommand(context.Background(), []string{"daemon", "stop"})
+		return runGatewayCommand(context.Background(), []string{"daemon", "stop", "--config", configPath})
 	})
 	if err != nil {
 		t.Fatalf("runGatewayCommand daemon stop: %v", err)
 	}
 	if !stopped || !strings.Contains(stdout, "Gateway daemon stopped") {
 		t.Fatalf("expected daemon stop output, got stopped=%v stdout=%q", stopped, stdout)
+	}
+}
+
+func TestRunGatewayDaemonRejectsUnexpectedTrailingArgs(t *testing.T) {
+	clearModelsCLIEnv(t)
+
+	err := runGatewayDaemon([]string{"start", "extra"})
+	if err == nil || !strings.Contains(err.Error(), "usage: anyclaw gateway daemon <start|stop> [--config <path>]") {
+		t.Fatalf("expected daemon usage error for trailing args, got %v", err)
 	}
 }
 
