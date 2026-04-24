@@ -136,6 +136,61 @@ func TestRunModelsSetUsesEffectiveDefaultProviderProfile(t *testing.T) {
 	}
 }
 
+func TestRunModelsSetDoesNotPersistEnvOverrides(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.Model = "gpt-4o-mini"
+
+	configPath := filepath.Join(t.TempDir(), "anyclaw.json")
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("Save config: %v", err)
+	}
+
+	t.Setenv("OPENAI_API_KEY", "sk-secret")
+	t.Setenv("LLM_PROVIDER", "anthropic")
+	t.Setenv("LLM_MODEL", "claude-sonnet-4-7")
+	t.Setenv("LLM_BASE_URL", "https://env.example")
+	t.Setenv("ANYCLAW_API_TOKEN", "api-secret")
+
+	stdout, _, err := captureCLIOutput(t, func() error {
+		return runModelsSet([]string{"--config", configPath, "gpt-5"})
+	})
+	if err != nil {
+		t.Fatalf("runModelsSet: %v", err)
+	}
+	if !strings.Contains(stdout, "Default model set to gpt-5") {
+		t.Fatalf("unexpected set output: %q", stdout)
+	}
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile config: %v", err)
+	}
+	if strings.Contains(string(raw), "sk-secret") || strings.Contains(string(raw), "api-secret") {
+		t.Fatalf("expected env secrets to stay out of persisted config, got %s", string(raw))
+	}
+
+	var stored config.Config
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatalf("Unmarshal stored config: %v", err)
+	}
+	if stored.LLM.Provider != "openai" {
+		t.Fatalf("expected persisted llm.provider to remain unchanged, got %q", stored.LLM.Provider)
+	}
+	if stored.LLM.Model != "gpt-5" {
+		t.Fatalf("expected persisted llm.model to be updated, got %q", stored.LLM.Model)
+	}
+	if stored.LLM.APIKey != "" {
+		t.Fatalf("expected persisted llm.api_key to stay empty, got %q", stored.LLM.APIKey)
+	}
+	if stored.LLM.BaseURL != "" {
+		t.Fatalf("expected persisted llm.base_url to stay empty, got %q", stored.LLM.BaseURL)
+	}
+	if stored.Security.APIToken != "" {
+		t.Fatalf("expected persisted api_token to stay empty, got %q", stored.Security.APIToken)
+	}
+}
+
 func TestRunModelsStatusJSON(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Providers = []config.ProviderProfile{

@@ -175,18 +175,21 @@ func runModelsSet(args []string) error {
 		return fmt.Errorf("model is required")
 	}
 
-	cfg, err := loadModelsCLIConfig(*configPath)
+	cfg, err := config.LoadPersisted(*configPath)
 	if err != nil {
 		return err
 	}
-	cfg.LLM.Model = model
 
 	if current, ok := cfg.FindDefaultProviderProfile(); ok {
+		if strings.TrimSpace(current.Provider) != "" {
+			cfg.LLM.Provider = strings.TrimSpace(current.Provider)
+		}
 		current.DefaultModel = model
 		if err := cfg.UpsertProviderProfile(current); err != nil {
 			return err
 		}
 	}
+	cfg.LLM.Model = model
 
 	if err := cfg.Save(*configPath); err != nil {
 		return err
