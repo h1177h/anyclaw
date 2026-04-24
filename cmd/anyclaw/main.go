@@ -8,6 +8,8 @@ import (
 )
 
 func main() {
+	configureConsoleUTF8()
+
 	if err := runAnyClawCLI(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -32,6 +34,10 @@ func runAnyClawCLI(args []string) error {
 		return runPluginCommand(args[1:])
 	case "skill", "skills":
 		return runSkillCommand(args[1:])
+	case "doctor":
+		return runDoctorCommand(args[1:])
+	case "onboard", "setup":
+		return runOnboardCommand(args[1:])
 	case "gateway":
 		return runGatewayCommand(context.Background(), args[1:])
 	default:
@@ -47,8 +53,14 @@ Usage:
   anyclaw models <subcommand>         Run model management commands
   anyclaw plugin <subcommand>         Run plugin management commands
   anyclaw skill <subcommand>          Run skill management commands
+  anyclaw doctor [options]            Run configuration diagnostics
+  anyclaw onboard/setup [options]     Run first-run model onboarding
   anyclaw gateway <subcommand>        Run gateway management commands
 `)
+}
+
+func printError(format string, args ...any) {
+	fmt.Printf("Error: "+format+"\n", args...)
 }
 
 func printSuccess(format string, args ...any) {
@@ -57,6 +69,10 @@ func printSuccess(format string, args ...any) {
 
 func printInfo(format string, args ...any) {
 	fmt.Printf(format+"\n", args...)
+}
+
+func printWarn(format string, args ...any) {
+	fmt.Printf("Warning: "+format+"\n", args...)
 }
 
 func writePrettyJSON(value any) error {
