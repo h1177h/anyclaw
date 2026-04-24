@@ -180,6 +180,7 @@ func TestConfiguredChannelStatusesIncludesPluginChannels(t *testing.T) {
 	}
 	manifest := `{
   "name": "matrix-channel",
+  "entrypoint": "run.py",
   "enabled": true,
   "channel": {
     "name": "matrix",
@@ -193,6 +194,7 @@ func TestConfiguredChannelStatusesIncludesPluginChannels(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Channels.Discord.Enabled = true
 	cfg.Plugins.Dir = pluginsDir
+	cfg.Plugins.AllowExec = true
 	cfg.Plugins.RequireTrust = false
 
 	items := configuredChannelStatuses(cfg)
@@ -236,6 +238,7 @@ func TestCollectChannelStatusesMergesPluginStatusByManifestName(t *testing.T) {
 	}
 	manifest := `{
   "name": "matrix-channel",
+  "entrypoint": "run.py",
   "enabled": true,
   "channel": {
     "name": "matrix",
@@ -248,6 +251,7 @@ func TestCollectChannelStatusesMergesPluginStatusByManifestName(t *testing.T) {
 
 	cfg := gatewayTestConfigFromURL(t, server.URL)
 	cfg.Plugins.Dir = pluginsDir
+	cfg.Plugins.AllowExec = true
 	cfg.Plugins.RequireTrust = false
 
 	configPath := filepath.Join(t.TempDir(), "anyclaw.json")
@@ -275,6 +279,52 @@ func TestCollectChannelStatusesMergesPluginStatusByManifestName(t *testing.T) {
 	}
 	if !foundMatrix {
 		t.Fatalf("expected merged matrix-channel status, got %#v", items)
+	}
+}
+
+func TestConfiguredChannelStatusesMarksNonRunnablePluginChannelsUnavailable(t *testing.T) {
+	clearModelsCLIEnv(t)
+
+	pluginsDir := filepath.Join(t.TempDir(), "plugins")
+	pluginDir := filepath.Join(pluginsDir, "matrix-channel")
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+		t.Fatalf("mkdir plugin dir: %v", err)
+	}
+	manifest := `{
+  "name": "matrix-channel",
+  "entrypoint": "run.py",
+  "enabled": true,
+  "channel": {
+    "name": "matrix",
+    "description": "Matrix channel"
+  }
+}`
+	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write plugin manifest: %v", err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Plugins.Dir = pluginsDir
+	cfg.Plugins.AllowExec = false
+	cfg.Plugins.RequireTrust = false
+
+	items := configuredChannelStatuses(cfg)
+
+	foundMatrix := false
+	for _, item := range items {
+		if item.Name == "matrix-channel" {
+			foundMatrix = true
+			if item.Enabled {
+				t.Fatalf("expected non-runnable plugin channel to be unavailable, got %#v", item)
+			}
+			if !strings.Contains(item.LastError, "plugin execution policy") {
+				t.Fatalf("expected unavailability note in plugin channel status, got %#v", item)
+			}
+			break
+		}
+	}
+	if !foundMatrix {
+		t.Fatalf("expected matrix-channel to be listed as unavailable, got %#v", items)
 	}
 }
 
