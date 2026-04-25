@@ -206,6 +206,12 @@ func TestGetAndListReturnClonedIndexInfo(t *testing.T) {
 	}
 }
 
+func TestCloneIndexInfoNil(t *testing.T) {
+	if got := cloneIndexInfo(nil); got != nil {
+		t.Fatalf("expected cloneIndexInfo(nil) to return nil, got %+v", got)
+	}
+}
+
 func TestListIndexes(t *testing.T) {
 	im, _ := setupIndexManager(t)
 	ctx := context.Background()
@@ -551,6 +557,21 @@ func TestRemoveVectorsCountsOnlyExistingIDs(t *testing.T) {
 	}
 	if info.VectorCount != 0 {
 		t.Fatalf("expected vector count 0 after removing existing id, got %d", info.VectorCount)
+	}
+}
+
+func TestRemoveVectorsEmptyIndexReturnsZero(t *testing.T) {
+	im, _ := setupIndexManager(t)
+	ctx := context.Background()
+
+	_, _ = im.Create(ctx, Config{Name: "remove_empty", Dimensions: 4})
+
+	removed, err := im.RemoveVectors(ctx, "remove_empty", []any{1, 2})
+	if err != nil {
+		t.Fatalf("remove vectors from empty index: %v", err)
+	}
+	if removed != 0 {
+		t.Fatalf("expected 0 removed from empty index, got %d", removed)
 	}
 }
 

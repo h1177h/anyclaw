@@ -3,6 +3,7 @@ package vec
 import (
 	"context"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -210,6 +211,27 @@ func TestVecStoreDelete(t *testing.T) {
 	}
 }
 
+func TestVecStoreDeleteMissingIDIsNoOp(t *testing.T) {
+	vs := setupVecStore(t)
+	ctx := context.Background()
+
+	if err := vs.Insert(ctx, 1, []float32{0.1, 0.2, 0.3, 0.4}, nil); err != nil {
+		t.Fatalf("insert before missing delete: %v", err)
+	}
+
+	if err := vs.Delete(ctx, 999); err != nil {
+		t.Fatalf("delete missing id should be no-op, got %v", err)
+	}
+
+	count, err := vs.Count(ctx)
+	if err != nil {
+		t.Fatalf("count after missing delete: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected count to remain 1 after missing delete, got %d", count)
+	}
+}
+
 func TestVecStoreUpdateVector(t *testing.T) {
 	vs := setupVecStore(t)
 	ctx := context.Background()
@@ -274,6 +296,19 @@ func TestVecStoreList(t *testing.T) {
 	}
 	if items[0].RowID != 1 || items[1].RowID != 2 {
 		t.Errorf("expected sorted items by id, got %+v", items)
+	}
+}
+
+func TestVecStoreListMissingCollectionFails(t *testing.T) {
+	ctx := context.Background()
+	vs := NewVecStore(VecStoreConfig{
+		TableName:   "missing_list_vectors",
+		Dimensions:  2,
+		PersistPath: t.TempDir(),
+	})
+
+	if _, err := vs.List(ctx, 1); err == nil {
+		t.Fatal("expected list on missing collection to fail")
 	}
 }
 
@@ -366,6 +401,50 @@ func TestVecStoreListRebuildsRegistryForExistingCollection(t *testing.T) {
 	}
 }
 
+func TestVecStoreListRepairsStaleRegistryWithMatchingCount(t *testing.T) {
+	path := t.TempDir()
+	ctx := context.Background()
+
+	vs := NewVecStore(VecStoreConfig{
+		TableName:   "stale_registry_vectors",
+		Dimensions:  2,
+		PersistPath: path,
+	})
+	if err := vs.Init(ctx); err != nil {
+		t.Fatalf("init stale registry store: %v", err)
+	}
+
+	if err := vs.Insert(ctx, 1, []float32{1, 0}, nil); err != nil {
+		t.Fatalf("insert vector 1: %v", err)
+	}
+	if err := vs.Insert(ctx, 2, []float32{0, 1}, nil); err != nil {
+		t.Fatalf("insert vector 2: %v", err)
+	}
+
+	if err := vs.replaceRegistryIDs(ctx, []string{"1", "999"}); err != nil {
+		t.Fatalf("seed stale registry ids: %v", err)
+	}
+
+	items, err := vs.List(ctx, 10)
+	if err != nil {
+		t.Fatalf("list with stale registry: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected stale registry to rebuild 2 items, got %d", len(items))
+	}
+	if items[0].RowID != 1 || items[1].RowID != 2 {
+		t.Fatalf("expected rebuilt rowids [1 2], got %+v", items)
+	}
+
+	ids, err := vs.listRegistryIDs(ctx, 10)
+	if err != nil {
+		t.Fatalf("list registry ids after stale repair: %v", err)
+	}
+	if want := []string{"1", "2"}; !reflect.DeepEqual(ids, want) {
+		t.Fatalf("expected repaired registry ids %v, got %v", want, ids)
+	}
+}
+
 func TestVecStoreDimensionMismatch(t *testing.T) {
 	vs := setupVecStore(t)
 	ctx := context.Background()
@@ -390,6 +469,24 @@ func TestVecStoreUnsupportedL2(t *testing.T) {
 
 	if err := vs.Init(context.Background()); err == nil {
 		t.Fatal("expected unsupported l2 error")
+	}
+}
+
+func TestLessDocumentIDMixedOrdering(t *testing.T) {
+	if !lessDocumentID("2", "10") {
+		t.Fatal("expected numeric ids to compare numerically")
+	}
+	if !lessDocumentID("2", "doc") {
+		t.Fatal("expected numeric ids to sort before string ids")
+	}
+	if lessDocumentID("doc", "2") {
+		t.Fatal("expected string ids to sort after numeric ids")
+	}
+	if lessDocumentID("b", "a") {
+		t.Fatal("expected lexical string ordering to apply for non-numeric ids")
+	}
+	if lessDocumentID("10", "10") {
+		t.Fatal("expected equal ids to not compare as less")
 	}
 }
 
