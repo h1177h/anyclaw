@@ -277,6 +277,40 @@ func TestVecStoreList(t *testing.T) {
 	}
 }
 
+func TestVecStoreListSortsNumericIDsNumerically(t *testing.T) {
+	vs := NewVecStore(VecStoreConfig{
+		TableName:   "numeric_sort_vectors",
+		Dimensions:  2,
+		PersistPath: t.TempDir(),
+	})
+	ctx := context.Background()
+	if err := vs.Init(ctx); err != nil {
+		t.Fatalf("init numeric sort store: %v", err)
+	}
+
+	for _, item := range []VecItem{
+		{ID: 10, Vector: []float32{1, 0}},
+		{ID: 2, Vector: []float32{0, 1}},
+		{ID: 1, Vector: []float32{1, 1}},
+	} {
+		if err := vs.Insert(ctx, item.ID, item.Vector, nil); err != nil {
+			t.Fatalf("insert item %v: %v", item.ID, err)
+		}
+	}
+
+	items, err := vs.List(ctx, 10)
+	if err != nil {
+		t.Fatalf("list numerically sorted items: %v", err)
+	}
+
+	if len(items) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(items))
+	}
+	if items[0].RowID != 1 || items[1].RowID != 2 || items[2].RowID != 10 {
+		t.Fatalf("expected numeric ID order [1 2 10], got %+v", items)
+	}
+}
+
 func TestVecStoreDimensionMismatch(t *testing.T) {
 	vs := setupVecStore(t)
 	ctx := context.Background()

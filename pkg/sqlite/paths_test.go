@@ -1,6 +1,10 @@
 package sqlite
 
-import "testing"
+import (
+	"context"
+	"path/filepath"
+	"testing"
+)
 
 func TestSidecarDirFileDB(t *testing.T) {
 	db := &DB{cfg: Config{DSN: `C:\tmp\anyclaw.db`}}
@@ -45,5 +49,36 @@ func TestSidecarDirFileDSNVariants(t *testing.T) {
 	}
 	if got := db.SidecarDir("vec"); got != `C:\tmp\anyclaw.vec` {
 		t.Fatalf("expected vec sidecar path %q, got %q", `C:\tmp\anyclaw.vec`, got)
+	}
+}
+
+func TestSidecarDirForSQLDBFileDB(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "anyclaw.db")
+	db, err := Open(DefaultConfig(dbPath))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer func() {
+		_ = db.Close()
+	}()
+
+	got := SidecarDirForSQLDB(context.Background(), db.DB, "vec")
+	want := filepath.Join(filepath.Dir(dbPath), "anyclaw.vec")
+	if got != want {
+		t.Fatalf("expected sidecar path %q, got %q", want, got)
+	}
+}
+
+func TestSidecarDirForSQLDBInMemoryDB(t *testing.T) {
+	db, err := Open(InMemoryConfig())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer func() {
+		_ = db.Close()
+	}()
+
+	if got := SidecarDirForSQLDB(context.Background(), db.DB, "vec"); got != "" {
+		t.Fatalf("expected empty sidecar path for in-memory sql db, got %q", got)
 	}
 }

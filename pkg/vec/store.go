@@ -305,7 +305,9 @@ func (vs *VecStore) List(ctx context.Context, limit int) ([]VecItem, error) {
 	for id := range pc.Documents {
 		ids = append(ids, id)
 	}
-	sort.Strings(ids)
+	sort.Slice(ids, func(i, j int) bool {
+		return lessDocumentID(ids[i], ids[j])
+	})
 
 	if limit > 0 && limit < len(ids) {
 		ids = ids[:limit]
@@ -601,6 +603,28 @@ func decodeID(id string) (int64, any) {
 		return rowID, rowID
 	}
 	return 0, id
+}
+
+func lessDocumentID(left, right string) bool {
+	leftNum, leftIsNum := numericDocumentID(left)
+	rightNum, rightIsNum := numericDocumentID(right)
+
+	switch {
+	case leftIsNum && rightIsNum:
+		if leftNum != rightNum {
+			return leftNum < rightNum
+		}
+		return left < right
+	case leftIsNum != rightIsNum:
+		return leftIsNum
+	default:
+		return left < right
+	}
+}
+
+func numericDocumentID(id string) (int64, bool) {
+	rowID, err := strconv.ParseInt(id, 10, 64)
+	return rowID, err == nil
 }
 
 func vecItemFromDocument(doc chromem.Document) VecItem {

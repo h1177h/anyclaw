@@ -1,6 +1,8 @@
 package sqlite
 
 import (
+	"context"
+	"database/sql"
 	"path/filepath"
 	"strings"
 )
@@ -12,7 +14,43 @@ func (db *DB) SidecarDir(name string) string {
 		return ""
 	}
 
-	dsn := strings.TrimSpace(db.cfg.DSN)
+	return sidecarDirFromLocation(db.cfg.DSN, name)
+}
+
+// SidecarDirForSQLDB returns a sibling directory next to the main database file
+// for a generic *sql.DB handle. For in-memory databases or non-SQLite handles,
+// it returns an empty string.
+func SidecarDirForSQLDB(ctx context.Context, db *sql.DB, name string) string {
+	if db == nil {
+		return ""
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	rows, err := db.QueryContext(ctx, "PRAGMA database_list")
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var seq int
+		var schema, file string
+		if err := rows.Scan(&seq, &schema, &file); err != nil {
+			continue
+		}
+		if schema != "main" {
+			continue
+		}
+		return sidecarDirFromLocation(file, name)
+	}
+
+	return ""
+}
+
+func sidecarDirFromLocation(dsn string, name string) string {
+	dsn = strings.TrimSpace(dsn)
 	if dsn == "" || dsn == ":memory:" || strings.Contains(dsn, "mode=memory") {
 		return ""
 	}

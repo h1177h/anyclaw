@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
@@ -651,6 +652,75 @@ func TestIndexReturnsErrorOnInsertBatchFailure(t *testing.T) {
 	}
 	if info.VectorCount != 0 {
 		t.Fatalf("expected no vectors after failed batch insert, got %d", info.VectorCount)
+	}
+}
+
+func TestIndexUsesSQLiteSidecarWhenVectorDirUnset(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "index.db")
+	db, err := sqlite.Open(sqlite.DefaultConfig(dbPath))
+	if err != nil {
+		t.Fatalf("open file-backed db: %v", err)
+	}
+
+	ctx := context.Background()
+	im := NewIndexManager(db.DB, nil)
+	if err := im.Init(ctx); err != nil {
+		t.Fatalf("init index manager: %v", err)
+	}
+
+	if _, err := im.Create(ctx, Config{Name: "sidecar_index", Dimensions: 4}); err != nil {
+		t.Fatalf("create sidecar index: %v", err)
+	}
+
+	result, err := im.Index(ctx, "sidecar_index", []IndexItem{
+		{ID: 1, Vector: []float32{0.1, 0.2, 0.3, 0.4}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("index sidecar vectors: %v", err)
+	}
+	if result.Indexed != 1 {
+		t.Fatalf("expected 1 indexed vector, got %+v", result)
+	}
+
+	info, err := im.Get("sidecar_index")
+	if err != nil {
+		t.Fatalf("get sidecar index: %v", err)
+	}
+	if info.VectorCount != 1 {
+		t.Fatalf("expected vector count 1 with implicit sidecar dir, got %d", info.VectorCount)
+	}
+
+	if err := db.Close(); err != nil {
+		t.Fatalf("close file-backed db: %v", err)
+	}
+
+	reopened, err := sqlite.Open(sqlite.DefaultConfig(dbPath))
+	if err != nil {
+		t.Fatalf("reopen file-backed db: %v", err)
+	}
+	defer func() {
+		_ = reopened.Close()
+	}()
+
+	im2 := NewIndexManager(reopened.DB, nil)
+	if err := im2.Init(ctx); err != nil {
+		t.Fatalf("re-init index manager: %v", err)
+	}
+
+	info, err = im2.Get("sidecar_index")
+	if err != nil {
+		t.Fatalf("get persisted sidecar index: %v", err)
+	}
+	if info.VectorCount != 1 {
+		t.Fatalf("expected persisted vector count 1, got %d", info.VectorCount)
+	}
+
+	results, err := im2.Search(ctx, "sidecar_index", []float32{0.1, 0.2, 0.3, 0.4}, 5)
+	if err != nil {
+		t.Fatalf("search persisted sidecar index: %v", err)
+	}
+	if len(results) != 1 || results[0].RowID != 1 {
+		t.Fatalf("expected persisted vector search result for rowid 1, got %+v", results)
 	}
 }
 

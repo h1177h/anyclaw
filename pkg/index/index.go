@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/1024XEngineer/anyclaw/pkg/embedding"
+	"github.com/1024XEngineer/anyclaw/pkg/sqlite"
 	"github.com/1024XEngineer/anyclaw/pkg/vec"
 )
 
@@ -590,14 +591,22 @@ func (im *IndexManager) countVectors(ctx context.Context, info *IndexInfo) (int6
 	return im.newVecStore(info).Count(ctx)
 }
 
+func (im *IndexManager) resolvedVectorDir() string {
+	if im.vecDir != "" {
+		return im.vecDir
+	}
+	return sqlite.SidecarDirForSQLDB(context.Background(), im.db, "vec")
+}
+
 func (im *IndexManager) newVecStore(info *IndexInfo) *vec.VecStore {
 	return vec.NewVecStore(vec.VecStoreConfig{
+		DB:          im.db,
 		TableName:   info.TableName,
 		Dimensions:  info.Dimensions,
 		Distance:    vec.DistanceMetric(info.Distance),
 		Metadata:    info.Metadata,
 		AuxColumns:  info.AuxColumns,
-		PersistPath: im.vecDir,
+		PersistPath: im.resolvedVectorDir(),
 	})
 }
 
