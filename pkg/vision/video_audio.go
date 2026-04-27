@@ -95,7 +95,8 @@ func (e *KeyFrameExtractor) ExtractKeyFrames(ctx context.Context, videoData []by
 	}
 
 	keyFrames := make([]KeyFrame, 0)
-	for _, scene := range scenes {
+	for i := range scenes {
+		scene := &scenes[i]
 		midTime := scene.Start + scene.Duration/2
 		frameData, err := e.extractFrameAt(ctx, tmpIn, midTime)
 		if err != nil {
@@ -109,7 +110,7 @@ func (e *KeyFrameExtractor) ExtractKeyFrames(ctx context.Context, videoData []by
 			SceneID:   scene.ID,
 		}
 		keyFrames = append(keyFrames, kf)
-		scene.KeyFrames = append(scene.KeyFrames, kf)
+		appendKeyFrameToScene(scenes, i, kf)
 
 		if len(keyFrames) >= e.maxKeyFrames {
 			break
@@ -355,6 +356,13 @@ func parseFPS(fpsStr string) float64 {
 	var fps float64
 	fmt.Sscanf(fpsStr, "%f", &fps)
 	return fps
+}
+
+func appendKeyFrameToScene(scenes []SceneInfo, sceneIndex int, keyFrame KeyFrame) {
+	if sceneIndex < 0 || sceneIndex >= len(scenes) {
+		return
+	}
+	scenes[sceneIndex].KeyFrames = append(scenes[sceneIndex].KeyFrames, keyFrame)
 }
 
 type AudioAnalysisResult struct {
