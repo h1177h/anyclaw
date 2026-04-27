@@ -33,6 +33,11 @@ func TestGetWorkflowJSONSchemaShape(t *testing.T) {
 			t.Fatalf("node enum = %v, missing %q", enum, want)
 		}
 	}
+
+	allOf := nodes["items"].(map[string]any)["allOf"].([]map[string]any)
+	assertNodeTypeRequired(t, allOf, "action", []string{"plugin", "action"})
+	assertNodeTypeRequired(t, allOf, "condition", []string{"condition"})
+	assertNodeTypeRequired(t, allOf, "loop", []string{"loop_var", "loop_over"})
 }
 
 func TestNodePaletteTemplatesMatchSupportedNodeTypes(t *testing.T) {
@@ -150,4 +155,25 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func assertNodeTypeRequired(t *testing.T, rules []map[string]any, nodeType string, required []string) {
+	t.Helper()
+	for _, rule := range rules {
+		ifSchema := rule["if"].(map[string]any)
+		props := ifSchema["properties"].(map[string]any)
+		typeSchema := props["type"].(map[string]any)
+		if typeSchema["const"] != nodeType {
+			continue
+		}
+		thenSchema := rule["then"].(map[string]any)
+		got := thenSchema["required"].([]string)
+		for _, want := range required {
+			if !containsString(got, want) {
+				t.Fatalf("%s required = %v, missing %q", nodeType, got, want)
+			}
+		}
+		return
+	}
+	t.Fatalf("missing conditional required rule for %q", nodeType)
 }

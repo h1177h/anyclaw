@@ -262,6 +262,11 @@ func nodeSchema() map[string]any {
 		"type":                 "object",
 		"additionalProperties": true,
 		"required":             []string{"id", "type", "name"},
+		"allOf": []map[string]any{
+			nodeTypeRequiredSchema("action", []string{"plugin", "action"}),
+			nodeTypeRequiredSchema("condition", []string{"condition"}),
+			nodeTypeRequiredSchema("loop", []string{"loop_var", "loop_over"}),
+		},
 		"properties": map[string]any{
 			"id":             stringProperty("Unique node ID."),
 			"type":           enumStringProperty("Node type.", []string{"action", "condition", "loop", "parallel", "join"}),
@@ -279,6 +284,22 @@ func nodeSchema() map[string]any {
 			"retry_policy":   retryPolicySchema(),
 			"error_handling": errorHandlingSchema(),
 			"position":       positionSchema(),
+		},
+	}
+}
+
+func nodeTypeRequiredSchema(nodeType string, required []string) map[string]any {
+	return map[string]any{
+		"if": map[string]any{
+			"properties": map[string]any{
+				"type": map[string]any{
+					"const": nodeType,
+				},
+			},
+			"required": []string{"type"},
+		},
+		"then": map[string]any{
+			"required": append([]string(nil), required...),
 		},
 	}
 }
