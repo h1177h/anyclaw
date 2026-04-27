@@ -609,6 +609,58 @@ func TestRecoverFromBackupIgnoresUnrelatedDBFiles(t *testing.T) {
 	}
 }
 
+func TestRecoverFromBackupContinuesWhenCurrentDatabaseMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	backupDir := filepath.Join(tmpDir, "backups")
+
+	cfg := DefaultConfig(dbPath)
+	cfg.MaxOpenConns = 1
+	cfg.MaxIdleConns = 1
+	db, err := Open(cfg)
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)`); err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO test (name) VALUES ('missing_current')`); err != nil {
+		t.Fatalf("failed to insert: %v", err)
+	}
+
+	bm := NewBackupManager(DefaultBackupConfig(backupDir))
+	if _, err := bm.BackupOnce(ctx, db); err != nil {
+		t.Fatalf("backup failed: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+	if err := os.Remove(dbPath); err != nil {
+		t.Fatalf("remove current db: %v", err)
+	}
+
+	rm := NewRepairManager(DefaultRepairConfig())
+	if err := rm.RecoverFromBackup(ctx, db, backupDir); err != nil {
+		t.Fatalf("recover should continue when current db is missing: %v", err)
+	}
+
+	restored, err := Open(cfg)
+	if err != nil {
+		t.Fatalf("reopen restored db: %v", err)
+	}
+	defer restored.Close()
+
+	var name string
+	if err := restored.QueryRowContext(ctx, `SELECT name FROM test LIMIT 1`).Scan(&name); err != nil {
+		t.Fatalf("query restored db: %v", err)
+	}
+	if name != "missing_current" {
+		t.Fatalf("expected missing_current, got %q", name)
+	}
+}
+
 func TestBackupInMemoryError(t *testing.T) {
 	db, err := Open(InMemoryConfig())
 	if err != nil {

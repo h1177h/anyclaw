@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 )
@@ -145,11 +146,9 @@ func (rm *RepairManager) RecoverFromBackup(ctx context.Context, db *DB, backupDi
 
 	if rm.cfg.CreateBackup {
 		currentDB, err := sqliteFilePathFromDSN(db.DSN())
-		if err == nil {
+		if err == nil && isReadableFile(currentDB) {
 			brokenBackup := currentDB + ".broken." + time.Now().Format("20060102_150405")
-			if err := copyFile(currentDB, brokenBackup); err != nil {
-				return fmt.Errorf("backup broken db: %w", err)
-			}
+			_ = copyFile(currentDB, brokenBackup)
 		}
 	}
 
@@ -269,4 +268,17 @@ func containsStr(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func isReadableFile(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	_ = file.Close()
+	return true
 }
