@@ -33,6 +33,17 @@ func TestGetWorkflowJSONSchemaShape(t *testing.T) {
 			t.Fatalf("node enum = %v, missing %q", enum, want)
 		}
 	}
+	assertSchemaType(t, nodeProps["timeout_sec"], "integer")
+	assertSchemaType(t, nodeProps["position"].(map[string]any)["properties"].(map[string]any)["x"], "number")
+
+	retryProps := nodeProps["retry_policy"].(map[string]any)["properties"].(map[string]any)
+	assertSchemaType(t, retryProps["max_attempts"], "integer")
+	assertSchemaType(t, retryProps["initial_delay"], "integer")
+	assertSchemaType(t, retryProps["max_delay"], "integer")
+	assertSchemaType(t, retryProps["backoff_factor"], "number")
+
+	errorProps := nodeProps["error_handling"].(map[string]any)["properties"].(map[string]any)
+	assertSchemaType(t, errorProps["max_retries"], "integer")
 
 	allOf := nodes["items"].(map[string]any)["allOf"].([]map[string]any)
 	assertNodeTypeRequired(t, allOf, "action", []string{"plugin", "action"})
@@ -176,4 +187,15 @@ func assertNodeTypeRequired(t *testing.T, rules []map[string]any, nodeType strin
 		return
 	}
 	t.Fatalf("missing conditional required rule for %q", nodeType)
+}
+
+func assertSchemaType(t *testing.T, schema any, want string) {
+	t.Helper()
+	got, ok := schema.(map[string]any)["type"].(string)
+	if !ok {
+		t.Fatalf("schema = %#v, missing string type", schema)
+	}
+	if got != want {
+		t.Fatalf("schema type = %q, want %q", got, want)
+	}
 }

@@ -280,7 +280,7 @@ func nodeSchema() map[string]any {
 			"condition":      expressionSchema(),
 			"loop_var":       stringProperty("Variable name used by loop nodes."),
 			"loop_over":      expressionSchema(),
-			"timeout_sec":    numberProperty("Node timeout in seconds."),
+			"timeout_sec":    integerProperty("Node timeout in seconds."),
 			"retry_policy":   retryPolicySchema(),
 			"error_handling": errorHandlingSchema(),
 			"position":       positionSchema(),
@@ -368,9 +368,9 @@ func retryPolicySchema() map[string]any {
 		"type":                 "object",
 		"additionalProperties": false,
 		"properties": map[string]any{
-			"max_attempts":   numberProperty("Maximum retry attempts."),
-			"initial_delay":  numberProperty("Initial retry delay."),
-			"max_delay":      numberProperty("Maximum retry delay."),
+			"max_attempts":   integerProperty("Maximum retry attempts."),
+			"initial_delay":  integerProperty("Initial retry delay."),
+			"max_delay":      integerProperty("Maximum retry delay."),
 			"backoff_factor": numberProperty("Retry backoff multiplier."),
 		},
 	}
@@ -383,7 +383,7 @@ func errorHandlingSchema() map[string]any {
 		"properties": map[string]any{
 			"on_error":    stringProperty("Error strategy."),
 			"target_node": stringProperty("Target node for error routing."),
-			"max_retries": numberProperty("Maximum handler retries."),
+			"max_retries": integerProperty("Maximum handler retries."),
 		},
 	}
 }
@@ -427,6 +427,13 @@ func dateTimeProperty(description string) map[string]any {
 func numberProperty(description string) map[string]any {
 	return map[string]any{
 		"type":        "number",
+		"description": description,
+	}
+}
+
+func integerProperty(description string) map[string]any {
+	return map[string]any{
+		"type":        "integer",
 		"description": description,
 	}
 }
