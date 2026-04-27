@@ -6,8 +6,30 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
+
+func TestRunWithoutArgsReturnsUsageWithoutNetwork(t *testing.T) {
+	var requests int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+	client := newTestClient(t, server)
+
+	output, err := client.Run(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Run without args: %v", err)
+	}
+	if !strings.Contains(output, "Usage: ollama") {
+		t.Fatalf("output = %q, want usage", output)
+	}
+	if got := atomic.LoadInt32(&requests); got != 0 {
+		t.Fatalf("requests = %d, want no network I/O", got)
+	}
+}
 
 func TestRunListsModels(t *testing.T) {
 	server := newOllamaTestServer(t)

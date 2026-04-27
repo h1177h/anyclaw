@@ -96,7 +96,7 @@ func NewClient(cfg Config) (*Client, error) {
 
 func (c *Client) Run(ctx context.Context, args []string) (string, error) {
 	if len(args) == 0 {
-		return c.listModelsText(ctx)
+		return "Usage: ollama <command> [args]\nCommands: list, models, run, generate, chat, show, status", nil
 	}
 
 	switch args[0] {
