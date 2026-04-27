@@ -64,6 +64,50 @@ func TestBackupOnce(t *testing.T) {
 	}
 }
 
+func TestBackupOnceSupportsSQLiteURIDSN(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "uri.db")
+	backupDir := filepath.Join(tmpDir, "backups")
+	dsn := "file:" + filepath.ToSlash(dbPath) + "?mode=rwc"
+
+	cfg := DefaultConfig(dsn)
+	cfg.MaxOpenConns = 1
+	cfg.MaxIdleConns = 1
+	db, err := Open(cfg)
+	if err != nil {
+		t.Fatalf("failed to open URI db: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)`); err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO test (name) VALUES ('uri_backup')`); err != nil {
+		t.Fatalf("failed to insert: %v", err)
+	}
+
+	bm := NewBackupManager(DefaultBackupConfig(backupDir))
+	backupPath, err := bm.BackupOnce(ctx, db)
+	if err != nil {
+		t.Fatalf("backup URI db failed: %v", err)
+	}
+
+	backupDB, err := Open(DefaultConfig(backupPath))
+	if err != nil {
+		t.Fatalf("open backup db: %v", err)
+	}
+	defer backupDB.Close()
+
+	var name string
+	if err := backupDB.QueryRowContext(ctx, `SELECT name FROM test LIMIT 1`).Scan(&name); err != nil {
+		t.Fatalf("query backup db: %v", err)
+	}
+	if name != "uri_backup" {
+		t.Fatalf("expected uri_backup, got %q", name)
+	}
+}
+
 func TestBackupPruning(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := tmpDir + "/test.db"
@@ -239,6 +283,60 @@ func TestRestoreFromBackup(t *testing.T) {
 
 	if name != "original" {
 		t.Errorf("expected name 'original', got %s", name)
+	}
+}
+
+func TestRestoreFromBackupSupportsSQLiteURIDSN(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "restore-uri.db")
+	backupDir := filepath.Join(tmpDir, "backups")
+	dsn := "file:" + filepath.ToSlash(dbPath) + "?mode=rwc"
+
+	cfg := DefaultConfig(dsn)
+	cfg.MaxOpenConns = 1
+	cfg.MaxIdleConns = 1
+	db, err := Open(cfg)
+	if err != nil {
+		t.Fatalf("failed to open URI db: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)`); err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO test (name) VALUES ('before_restore')`); err != nil {
+		t.Fatalf("failed to insert: %v", err)
+	}
+
+	bm := NewBackupManager(DefaultBackupConfig(backupDir))
+	backupPath, err := bm.BackupOnce(ctx, db)
+	if err != nil {
+		t.Fatalf("backup failed: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+
+	if err := os.WriteFile(dbPath, []byte("not sqlite"), 0o600); err != nil {
+		t.Fatalf("corrupt db file: %v", err)
+	}
+
+	if err := bm.RestoreFromBackup(ctx, db, backupPath); err != nil {
+		t.Fatalf("restore URI db failed: %v", err)
+	}
+
+	restored, err := Open(cfg)
+	if err != nil {
+		t.Fatalf("reopen restored db: %v", err)
+	}
+	defer restored.Close()
+
+	var name string
+	if err := restored.QueryRowContext(ctx, `SELECT name FROM test LIMIT 1`).Scan(&name); err != nil {
+		t.Fatalf("query restored db: %v", err)
+	}
+	if name != "before_restore" {
+		t.Fatalf("expected before_restore, got %q", name)
 	}
 }
 

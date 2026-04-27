@@ -3,7 +3,6 @@ package sqlite
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -147,16 +146,21 @@ func (rm *RepairManager) RecoverFromBackup(ctx context.Context, db *DB, backupDi
 	latestBackup := backups[0]
 
 	if rm.cfg.CreateBackup {
-		currentDB := db.DSN()
-		if currentDB != "" && currentDB != ":memory:" {
+		currentDB, err := sqliteFilePathFromDSN(db.DSN())
+		if err == nil {
 			brokenBackup := currentDB + ".broken." + time.Now().Format("20060102_150405")
-			if err := rm.copyFile(currentDB, brokenBackup); err != nil {
+			if err := copyFile(currentDB, brokenBackup); err != nil {
 				return fmt.Errorf("backup broken db: %w", err)
 			}
 		}
 	}
 
-	if err := rm.copyFile(latestBackup, db.DSN()); err != nil {
+	dstPath, err := sqliteFilePathFromDSN(db.DSN())
+	if err != nil {
+		return err
+	}
+
+	if err := copyFile(latestBackup, dstPath); err != nil {
 		return fmt.Errorf("restore from backup: %w", err)
 	}
 
@@ -209,10 +213,10 @@ func (rm *RepairManager) repair(ctx context.Context, db *DB, issues []string) (*
 	result := &RepairResult{}
 
 	if rm.cfg.CreateBackup {
-		currentDB := db.DSN()
-		if currentDB != "" && currentDB != ":memory:" {
+		currentDB, err := sqliteFilePathFromDSN(db.DSN())
+		if err == nil {
 			backupPath := currentDB + ".repair_backup." + time.Now().Format("20060102_150405")
-			if err := rm.copyFile(currentDB, backupPath); err != nil {
+			if err := sqliteBackupInto(ctx, db.DB, backupPath); err != nil {
 				return nil, fmt.Errorf("create repair backup: %w", err)
 			}
 			result.BackupCreated = backupPath
@@ -281,27 +285,6 @@ func (rm *RepairManager) listBackupFiles(backupDir string) ([]string, error) {
 	sortByTime(backups)
 
 	return backups, nil
-}
-
-func (rm *RepairManager) copyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	_, err = io.Copy(dstFile, srcFile)
-	if err != nil {
-		return err
-	}
-
-	return dstFile.Sync()
 }
 
 func containsStr(s, substr string) bool {

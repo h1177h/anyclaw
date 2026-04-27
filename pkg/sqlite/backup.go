@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"os"
@@ -146,36 +147,11 @@ func (bm *BackupManager) BackupOnce(ctx context.Context, db *DB) (string, error)
 }
 
 func (bm *BackupManager) performBackup(ctx context.Context, db *DB, backupPath string) error {
-	if err := db.Checkpoint(ctx, "TRUNCATE"); err != nil {
-		return fmt.Errorf("checkpoint before backup: %w", err)
+	if _, err := sqliteFilePathFromDSN(db.DSN()); err != nil {
+		return err
 	}
 
-	srcDB := db.DSN()
-	if srcDB == "" || srcDB == ":memory:" {
-		return fmt.Errorf("sqlite: cannot backup in-memory database")
-	}
-
-	srcFile, err := os.Open(srcDB)
-	if err != nil {
-		return fmt.Errorf("open source db: %w", err)
-	}
-	defer srcFile.Close()
-
-	dstFile, err := os.Create(backupPath)
-	if err != nil {
-		return fmt.Errorf("create backup file: %w", err)
-	}
-	defer dstFile.Close()
-
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return fmt.Errorf("copy to backup: %w", err)
-	}
-
-	if err := dstFile.Sync(); err != nil {
-		return fmt.Errorf("sync backup: %w", err)
-	}
-
-	return nil
+	return sqliteBackupInto(ctx, db.DB, backupPath)
 }
 
 func (bm *BackupManager) ListBackups() ([]BackupInfo, error) {
@@ -256,32 +232,12 @@ func (bm *BackupManager) RestoreFromBackup(ctx context.Context, db *DB, backupPa
 		return fmt.Errorf("sqlite: backup file not found: %w", err)
 	}
 
-	srcFile, err := os.Open(backupPath)
+	dstPath, err := sqliteFilePathFromDSN(db.DSN())
 	if err != nil {
-		return fmt.Errorf("sqlite: open backup file: %w", err)
-	}
-	defer srcFile.Close()
-
-	dstPath := db.DSN()
-	if dstPath == "" || dstPath == ":memory:" {
-		return fmt.Errorf("sqlite: cannot restore to in-memory database")
+		return err
 	}
 
-	dstFile, err := os.Create(dstPath)
-	if err != nil {
-		return fmt.Errorf("sqlite: create database file: %w", err)
-	}
-	defer dstFile.Close()
-
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return fmt.Errorf("sqlite: restore database: %w", err)
-	}
-
-	if err := dstFile.Sync(); err != nil {
-		return fmt.Errorf("sqlite: sync restored database: %w", err)
-	}
-
-	return nil
+	return copyFile(backupPath, dstPath)
 }
 
 func pruneOldBackups(cfg BackupConfig) error {
@@ -344,4 +300,71 @@ func normalizeBackupConfig(cfg BackupConfig) BackupConfig {
 		cfg.Interval = time.Hour
 	}
 	return cfg
+}
+
+func sqliteBackupInto(ctx context.Context, db *sql.DB, backupPath string) error {
+	if db == nil {
+		return fmt.Errorf("sqlite: database is nil")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(backupPath), 0o755); err != nil {
+		return fmt.Errorf("sqlite: create backup dir: %w", err)
+	}
+
+	if _, err := os.Stat(backupPath); err == nil {
+		if err := os.Remove(backupPath); err != nil {
+			return fmt.Errorf("sqlite: remove existing backup: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("sqlite: stat backup path: %w", err)
+	}
+
+	if _, err := db.ExecContext(ctx, "VACUUM main INTO ?", backupPath); err != nil {
+		return fmt.Errorf("sqlite: vacuum into backup: %w", err)
+	}
+
+	return nil
+}
+
+func sqliteFilePathFromDSN(dsn string) (string, error) {
+	dsn = strings.TrimSpace(dsn)
+	if dsn == "" || dsn == ":memory:" || strings.Contains(dsn, "mode=memory") {
+		return "", fmt.Errorf("sqlite: operation requires a file-backed database")
+	}
+
+	if strings.HasPrefix(dsn, "file:") {
+		dsn = strings.TrimPrefix(dsn, "file:")
+	}
+	if idx := strings.Index(dsn, "?"); idx >= 0 {
+		dsn = dsn[:idx]
+	}
+	dsn = strings.TrimSpace(dsn)
+	if dsn == "" || dsn == ":memory:" {
+		return "", fmt.Errorf("sqlite: operation requires a file-backed database")
+	}
+
+	return filepath.Clean(dsn), nil
+}
+
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open source file: %w", err)
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("create destination file: %w", err)
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return fmt.Errorf("copy file: %w", err)
+	}
+	if err := dstFile.Sync(); err != nil {
+		return fmt.Errorf("sync destination file: %w", err)
+	}
+
+	return nil
 }
