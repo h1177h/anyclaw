@@ -121,13 +121,89 @@ func TestExecutorExecBinaryFailure(t *testing.T) {
 	}
 }
 
-func TestExecutorAutoInstallRejectsInvalidInstallCommand(t *testing.T) {
+func TestExecutorAutoInstallRejectsInvalidInstallCommandBeforePolicy(t *testing.T) {
 	registry := newTestRegistry(t)
 	executor := NewExecutor(registry)
 
 	result := executor.AutoInstall(context.Background(), "git")
 	if result.Error != "Invalid install command" || result.ExitCode != 1 {
 		t.Fatalf("AutoInstall result = %+v, want invalid install command without process execution", result)
+	}
+}
+
+func TestExecutorAutoInstallIsDisabledByDefault(t *testing.T) {
+	registry := newRegistryWithEntries(t, []byte(`{"clis":[
+		{"name":"tool","display_name":"Tool","entry_point":"tool","install_cmd":"go version"}
+	]}`))
+	executor := NewExecutor(registry)
+
+	result := executor.AutoInstall(context.Background(), "tool")
+	if result.Error != "Auto-install disabled or install command not allowed" || result.ExitCode != 1 {
+		t.Fatalf("AutoInstall result = %+v, want disabled", result)
+	}
+}
+
+func TestExecutorAutoInstallRequiresTrustedRegistryAndAllowedCommand(t *testing.T) {
+	registry := newRegistryWithEntries(t, []byte(`{"clis":[
+		{"name":"tool","display_name":"Tool","entry_point":"tool","install_cmd":"go version"}
+	]}`))
+	executor := NewExecutor(registry)
+
+	executor.SetAutoInstallPolicy(AutoInstallPolicy{
+		TrustedRegistry: false,
+		AllowedCommands: map[string]struct{}{
+			"go": {},
+		},
+	})
+	if result := executor.AutoInstall(context.Background(), "tool"); result.Error != "Auto-install disabled or install command not allowed" {
+		t.Fatalf("AutoInstall without trust = %+v, want disabled", result)
+	}
+
+	executor.SetAutoInstallPolicy(AutoInstallPolicy{
+		TrustedRegistry: true,
+		AllowedCommands: map[string]struct{}{
+			"npm": {},
+		},
+	})
+	if result := executor.AutoInstall(context.Background(), "tool"); result.Error != "Auto-install disabled or install command not allowed" {
+		t.Fatalf("AutoInstall without command allowlist = %+v, want disabled", result)
+	}
+}
+
+func TestExecutorAutoInstallAllowedCommand(t *testing.T) {
+	registry := newRegistryWithEntries(t, []byte(`{"clis":[
+		{"name":"tool","display_name":"Tool","entry_point":"tool","install_cmd":"go version"}
+	]}`))
+	executor := NewExecutor(registry)
+	executor.SetAutoInstallPolicy(AutoInstallPolicy{
+		TrustedRegistry: true,
+		AllowedCommands: map[string]struct{}{
+			"go": {},
+		},
+	})
+
+	result := executor.AutoInstall(context.Background(), "tool")
+	if result.Error != "" || result.ExitCode != 0 || !result.Installed {
+		t.Fatalf("AutoInstall result = %+v, want success", result)
+	}
+
+	installed, _ := registry.Get("tool")
+	if !installed.Installed || installed.ExecutablePath != "tool" {
+		t.Fatalf("installed entry = %+v, want installed tool", installed)
+	}
+}
+
+func TestExecutorAutoInstallPolicyIsCopied(t *testing.T) {
+	executor := NewExecutor(newTestRegistry(t))
+	allowed := map[string]struct{}{"go": {}}
+	executor.SetAutoInstallPolicy(AutoInstallPolicy{
+		TrustedRegistry: true,
+		AllowedCommands: allowed,
+	})
+	delete(allowed, "go")
+
+	if !executor.allowAutoInstallCommand("go") {
+		t.Fatal("expected policy to retain copied command")
 	}
 }
 

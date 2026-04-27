@@ -12,12 +12,18 @@ import (
 )
 
 type Executor struct {
-	mu       sync.RWMutex
-	reg      *cr.Registry
-	handlers map[string]CommandHandler
+	mu                sync.RWMutex
+	reg               *cr.Registry
+	handlers          map[string]CommandHandler
+	autoInstallPolicy AutoInstallPolicy
 }
 
 type CommandHandler func(ctx context.Context, args []string) (string, error)
+
+type AutoInstallPolicy struct {
+	TrustedRegistry bool
+	AllowedCommands map[string]struct{}
+}
 
 type ExecResult struct {
 	Name      string   `json:"name"`
@@ -39,6 +45,15 @@ func (e *Executor) RegisterHandler(name string, handler CommandHandler) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.handlers[name] = handler
+}
+
+func (e *Executor) SetAutoInstallPolicy(policy AutoInstallPolicy) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.autoInstallPolicy = AutoInstallPolicy{
+		TrustedRegistry: policy.TrustedRegistry,
+		AllowedCommands: cloneAllowedCommands(policy.AllowedCommands),
+	}
 }
 
 func (e *Executor) Exec(ctx context.Context, name string, args []string) *ExecResult {
@@ -123,6 +138,11 @@ func (e *Executor) AutoInstall(ctx context.Context, name string) *ExecResult {
 		result.ExitCode = 1
 		return result
 	}
+	if !e.allowAutoInstallCommand(parts[0]) {
+		result.Error = "Auto-install disabled or install command not allowed"
+		result.ExitCode = 1
+		return result
+	}
 
 	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
 	cmd.Stdout = os.Stdout
@@ -156,4 +176,28 @@ func (e *Executor) Categories() map[string]int {
 
 func (e *Executor) JSON() (string, error) {
 	return e.reg.JSON()
+}
+
+func (e *Executor) allowAutoInstallCommand(command string) bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if !e.autoInstallPolicy.TrustedRegistry {
+		return false
+	}
+	if len(e.autoInstallPolicy.AllowedCommands) == 0 {
+		return false
+	}
+	_, ok := e.autoInstallPolicy.AllowedCommands[command]
+	return ok
+}
+
+func cloneAllowedCommands(input map[string]struct{}) map[string]struct{} {
+	if input == nil {
+		return nil
+	}
+	output := make(map[string]struct{}, len(input))
+	for command := range input {
+		output[command] = struct{}{}
+	}
+	return output
 }
