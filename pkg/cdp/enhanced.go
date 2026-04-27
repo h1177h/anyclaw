@@ -234,7 +234,7 @@ func NewFormHandler(ctx context.Context) *FormHandler {
 
 func (fh *FormHandler) Fill(selector string, values map[string]string) error {
 	for field, value := range values {
-		fieldSelector := fmt.Sprintf("%s [name='%s']", selector, field)
+		fieldSelector := formFieldSelector(selector, field)
 		if err := runChromedp(fh.ctx,
 			chromedp.SetValue(fieldSelector, value, chromedp.ByQuery),
 		); err != nil {
@@ -260,7 +260,7 @@ func (fh *FormHandler) GetValues(selector string, fields []string) (map[string]s
 	result := make(map[string]string)
 
 	for _, field := range fields {
-		fieldSelector := fmt.Sprintf("%s [name='%s']", selector, field)
+		fieldSelector := formFieldSelector(selector, field)
 		var value string
 		if err := runChromedp(fh.ctx,
 			chromedp.Value(fieldSelector, &value, chromedp.ByQuery),
@@ -271,6 +271,39 @@ func (fh *FormHandler) GetValues(selector string, fields []string) (map[string]s
 	}
 
 	return result, nil
+}
+
+func formFieldSelector(formSelector, fieldName string) string {
+	return fmt.Sprintf("%s [name=%s]", formSelector, cssStringLiteral(fieldName))
+}
+
+func cssStringLiteral(value string) string {
+	var sb strings.Builder
+	sb.WriteByte('"')
+	for _, r := range value {
+		switch r {
+		case 0:
+			sb.WriteString(`\fffd `)
+		case '\\':
+			sb.WriteString(`\\`)
+		case '"':
+			sb.WriteString(`\"`)
+		case '\n':
+			sb.WriteString(`\a `)
+		case '\r':
+			sb.WriteString(`\d `)
+		case '\f':
+			sb.WriteString(`\c `)
+		default:
+			if r < 0x20 || r == 0x7f {
+				sb.WriteString(fmt.Sprintf(`\%x `, r))
+				continue
+			}
+			sb.WriteRune(r)
+		}
+	}
+	sb.WriteByte('"')
+	return sb.String()
 }
 
 func ResolveCDPSelector(selector string) string {

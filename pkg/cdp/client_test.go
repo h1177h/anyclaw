@@ -460,3 +460,34 @@ func TestElementFinderAndFormHandlerMethods(t *testing.T) {
 		t.Fatalf("expected runner calls, got %d", calls)
 	}
 }
+
+func TestFormFieldSelectorEscapesFieldName(t *testing.T) {
+	field := "user'name\\id\"line\n"
+	got := formFieldSelector("#profile", field)
+	want := "#profile [name=\"user'name\\\\id\\\"line\\a \"]"
+	if got != want {
+		t.Fatalf("form field selector = %q, want %q", got, want)
+	}
+}
+
+func TestCSSStringLiteralEscapesSpecialCharacters(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "simple", value: "field", want: `"field"`},
+		{name: "quote and slash", value: `quote"slash\`, want: `"quote\"slash\\"`},
+		{name: "nul", value: string([]byte{0}), want: `"\fffd "`},
+		{name: "line separators", value: "a\r\f", want: `"a\d \c "`},
+		{name: "control chars", value: string([]rune{'x', 0x1f, 0x7f}), want: `"x\1f \7f "`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := cssStringLiteral(tc.value); got != tc.want {
+				t.Fatalf("cssStringLiteral(%q) = %q, want %q", tc.value, got, tc.want)
+			}
+		})
+	}
+}
