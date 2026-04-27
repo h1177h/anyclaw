@@ -3,8 +3,6 @@ package sqlite
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 )
@@ -135,7 +133,7 @@ func (rm *RepairManager) RecoverFromBackup(ctx context.Context, db *DB, backupDi
 		return fmt.Errorf("sqlite: close database before restore")
 	}
 
-	backups, err := rm.listBackupFiles(backupDir)
+	backups, err := listBackups(normalizeBackupConfig(BackupConfig{BackupDir: backupDir}))
 	if err != nil {
 		return fmt.Errorf("list backups: %w", err)
 	}
@@ -143,7 +141,7 @@ func (rm *RepairManager) RecoverFromBackup(ctx context.Context, db *DB, backupDi
 		return fmt.Errorf("no backups found in %s", backupDir)
 	}
 
-	latestBackup := backups[0]
+	latestBackup := backups[0].Path
 
 	if rm.cfg.CreateBackup {
 		currentDB, err := sqliteFilePathFromDSN(db.DSN())
@@ -264,29 +262,6 @@ func (rm *RepairManager) repair(ctx context.Context, db *DB, issues []string) (*
 	return result, nil
 }
 
-func (rm *RepairManager) listBackupFiles(backupDir string) ([]string, error) {
-	entries, err := os.ReadDir(backupDir)
-	if err != nil {
-		return nil, err
-	}
-
-	var backups []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if !stringsHasSuffix(name, ".db") {
-			continue
-		}
-		backups = append(backups, filepath.Join(backupDir, name))
-	}
-
-	sortByTime(backups)
-
-	return backups, nil
-}
-
 func containsStr(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
@@ -294,22 +269,4 @@ func containsStr(s, substr string) bool {
 		}
 	}
 	return false
-}
-
-func stringsHasSuffix(s, suffix string) bool {
-	if len(s) < len(suffix) {
-		return false
-	}
-	return s[len(s)-len(suffix):] == suffix
-}
-
-func sortByTime(files []string) {
-	// Simple sort by filename (backup files have timestamp in name)
-	for i := 0; i < len(files); i++ {
-		for j := i + 1; j < len(files); j++ {
-			if files[i] < files[j] {
-				files[i], files[j] = files[j], files[i]
-			}
-		}
-	}
 }

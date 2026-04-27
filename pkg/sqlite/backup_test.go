@@ -545,6 +545,70 @@ func TestRecoverFromBackup(t *testing.T) {
 	}
 }
 
+func TestRecoverFromBackupIgnoresUnrelatedDBFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	backupDir := filepath.Join(tmpDir, "backups")
+
+	cfg := DefaultConfig(dbPath)
+	cfg.MaxOpenConns = 1
+	cfg.MaxIdleConns = 1
+	db, err := Open(cfg)
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)`); err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO test (name) VALUES ('real_backup')`); err != nil {
+		t.Fatalf("failed to insert: %v", err)
+	}
+
+	bm := NewBackupManager(DefaultBackupConfig(backupDir))
+	if _, err := bm.BackupOnce(ctx, db); err != nil {
+		t.Fatalf("backup failed: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+
+	decoyPath := filepath.Join(backupDir, "zzzz_unrelated.db")
+	decoy, err := Open(DefaultConfig(decoyPath))
+	if err != nil {
+		t.Fatalf("open decoy db: %v", err)
+	}
+	if _, err := decoy.ExecContext(ctx, `CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)`); err != nil {
+		t.Fatalf("create decoy table: %v", err)
+	}
+	if _, err := decoy.ExecContext(ctx, `INSERT INTO test (name) VALUES ('decoy')`); err != nil {
+		t.Fatalf("insert decoy: %v", err)
+	}
+	if err := decoy.Close(); err != nil {
+		t.Fatalf("close decoy: %v", err)
+	}
+
+	rm := NewRepairManager(RepairConfig{CreateBackup: false})
+	if err := rm.RecoverFromBackup(ctx, db, backupDir); err != nil {
+		t.Fatalf("recover from backup failed: %v", err)
+	}
+
+	restored, err := Open(cfg)
+	if err != nil {
+		t.Fatalf("reopen db failed: %v", err)
+	}
+	defer restored.Close()
+
+	var name string
+	if err := restored.QueryRowContext(ctx, `SELECT name FROM test LIMIT 1`).Scan(&name); err != nil {
+		t.Fatalf("query restored db: %v", err)
+	}
+	if name != "real_backup" {
+		t.Fatalf("expected real backup to be restored, got %q", name)
+	}
+}
+
 func TestBackupInMemoryError(t *testing.T) {
 	db, err := Open(InMemoryConfig())
 	if err != nil {
