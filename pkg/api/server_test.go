@@ -228,6 +228,56 @@ func TestSearchTextEndpoint(t *testing.T) {
 	}
 }
 
+func TestSearchTextUsesServerEmbedder(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	im := index.NewIndexManager(db, nil, index.WithVectorDir(t.TempDir()))
+	if err := im.Init(context.Background()); err != nil {
+		t.Fatalf("init index manager: %v", err)
+	}
+	if _, err := im.Create(context.Background(), index.Config{
+		Name:       "server_embedder_index",
+		Dimensions: 4,
+		Distance:   "cosine",
+	}); err != nil {
+		t.Fatalf("create index: %v", err)
+	}
+	if _, err := im.Index(context.Background(), "server_embedder_index", []index.IndexItem{
+		{ID: "doc-1", Vector: []float32{0.25, 0.25, 0.25, 0.25}},
+	}, nil); err != nil {
+		t.Fatalf("seed index: %v", err)
+	}
+
+	embedder := &mockEmbedder{dim: 4}
+	s := NewServer(ServerConfig{
+		IndexMgr: im,
+		Embedder: embedder,
+	})
+
+	w := doRequest(t, s, "POST", "/v1/search/text", map[string]any{
+		"index": "server_embedder_index",
+		"text":  "a",
+		"limit": 1,
+	})
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp SearchResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Count != 1 {
+		t.Fatalf("expected 1 result, got %d", resp.Count)
+	}
+	if embedder.callCount.Load() != 1 {
+		t.Fatalf("expected server embedder to be called once, got %d", embedder.callCount.Load())
+	}
+}
+
 func TestSearchTextMissingText(t *testing.T) {
 	s, _ := setupTestServer(t)
 

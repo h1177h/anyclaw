@@ -267,7 +267,13 @@ func (s *Server) handleSearchText(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
 	ctx := r.Context()
-	results, err := s.im.SearchByText(ctx, req.Index, req.Text, req.Limit)
+	vector, err := s.embedder.Embed(ctx, req.Text)
+	if err != nil {
+		writeErrorDetail(w, http.StatusInternalServerError, "embedding failed", err.Error())
+		return
+	}
+
+	results, err := s.im.Search(ctx, req.Index, vector, req.Limit)
 	if err != nil {
 		writeErrorDetail(w, http.StatusBadRequest, "search failed", err.Error())
 		return
