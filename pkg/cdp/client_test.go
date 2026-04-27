@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -224,8 +225,11 @@ func TestBrowserToolVisibilityAndWaitHelpers(t *testing.T) {
 		return nil
 	})
 	visible, err := tool.IsVisible("#ok")
-	if err != nil || !visible {
-		t.Fatalf("IsVisible success = (%v, %v), want (true, nil)", visible, err)
+	if err != nil {
+		t.Fatalf("IsVisible error = %v", err)
+	}
+	if visible {
+		t.Fatal("stubbed runner should not mutate visibility result")
 	}
 	if err := tool.WaitForSelector("#ok", time.Second); err != nil {
 		t.Fatalf("WaitForSelector error = %v", err)
@@ -234,12 +238,22 @@ func TestBrowserToolVisibilityAndWaitHelpers(t *testing.T) {
 		t.Fatalf("WaitForNavigation error = %v", err)
 	}
 
+	runnerErr := errors.New("boom")
 	stubRun(t, func(ctx context.Context, actions ...chromedp.Action) error {
-		return errors.New("boom")
+		return runnerErr
 	})
 	visible, err = tool.IsVisible("#missing")
-	if err != nil || visible {
-		t.Fatalf("IsVisible failure = (%v, %v), want (false, nil)", visible, err)
+	if !errors.Is(err, runnerErr) || visible {
+		t.Fatalf("IsVisible failure = (%v, %v), want (false, %v)", visible, err, runnerErr)
+	}
+}
+
+func TestVisibleCheckExpressionEscapesSelector(t *testing.T) {
+	selector := `#id'"\with-newline
+`
+	expr := visibleCheckExpression(selector)
+	if !strings.Contains(expr, "document.querySelector("+jsStringLiteral(selector)+")") {
+		t.Fatalf("visible expression did not include escaped selector: %s", expr)
 	}
 }
 

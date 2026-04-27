@@ -101,11 +101,31 @@ func (b *BrowserTool) GetElementHTML(selector string) (string, error) {
 
 func (b *BrowserTool) IsVisible(selector string) (bool, error) {
 	var visible bool
-	err := runChromedp(b.ctx,
-		chromedp.WaitVisible(selector, chromedp.ByQuery),
-	)
-	visible = (err == nil)
+	if err := runChromedp(b.ctx,
+		chromedp.Evaluate(visibleCheckExpression(selector), &visible),
+	); err != nil {
+		return false, err
+	}
 	return visible, nil
+}
+
+func visibleCheckExpression(selector string) string {
+	return fmt.Sprintf(
+		`(() => {
+	const element = document.querySelector(%s);
+	if (!element) {
+		return false;
+	}
+	const style = window.getComputedStyle(element);
+	const rect = element.getBoundingClientRect();
+	return style.display !== "none" &&
+		style.visibility !== "hidden" &&
+		style.opacity !== "0" &&
+		rect.width > 0 &&
+		rect.height > 0;
+})()`,
+		jsStringLiteral(selector),
+	)
 }
 
 func (b *BrowserTool) WaitForSelector(selector string, timeout time.Duration) error {
