@@ -118,6 +118,34 @@ func TestRunRejectsRawSQLiteDotCommands(t *testing.T) {
 	}
 }
 
+func TestRunRejectsEmbeddedSQLiteDotCommands(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+	}{
+		{
+			name:  "newline shell",
+			query: "select 1;\n.shell touch /tmp/pwned",
+		},
+		{
+			name:  "crlf shell with spaces",
+			query: "select 1;\r\n  .system calc",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewClient(Config{Runner: (&recordingRunner{}).run}).Run(context.Background(), []string{"app.db", tt.query})
+			if err == nil {
+				t.Fatal("expected disabled dot command error")
+			}
+			if !strings.Contains(err.Error(), "dot commands are disabled") {
+				t.Fatalf("error = %v, want dot command disabled", err)
+			}
+		})
+	}
+}
+
 func TestRunRejectsUnsafeSchemaTableName(t *testing.T) {
 	_, err := NewClient(Config{Runner: (&recordingRunner{}).run}).Run(context.Background(), []string{"app.db", "schema", "users; .shell calc"})
 	if err == nil {

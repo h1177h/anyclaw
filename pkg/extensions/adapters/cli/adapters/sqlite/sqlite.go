@@ -61,7 +61,7 @@ func (c *Client) Run(ctx context.Context, args []string) (string, error) {
 	sqlQuery := strings.Join(args[1:], " ")
 
 	query := strings.TrimSpace(sqlQuery)
-	if strings.HasPrefix(query, ".") {
+	if containsSQLiteDotCommand(query) {
 		return "", fmt.Errorf("sqlite dot commands are disabled; use tables, schema, or dump")
 	}
 	if strings.HasPrefix(strings.ToLower(query), "select") ||
@@ -122,4 +122,13 @@ func validateDatabasePath(dbPath string) error {
 		return fmt.Errorf("database path must not start with '-'")
 	}
 	return nil
+}
+
+func containsSQLiteDotCommand(query string) bool {
+	for _, line := range strings.Split(strings.ReplaceAll(query, "\r\n", "\n"), "\n") {
+		if strings.HasPrefix(strings.TrimLeft(line, " \t\r"), ".") {
+			return true
+		}
+	}
+	return false
 }
