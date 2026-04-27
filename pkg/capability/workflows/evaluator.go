@@ -14,9 +14,9 @@ import (
 //
 //	Comparison: ==, !=, <, >, <=, >=
 //	Logical: &&, ||, !
-//	String: contains, starts_with, ends_with, empty, not_empty
+//	String/collection: contains, starts_with, ends_with, empty, not_empty, length
 //	Membership: in, not_in
-//	Type checks: is_string, is_number, is_bool, is_array, is_map
+//	Type checks: is_string, is_number, is_bool, is_array, is_map, is_null
 //
 // Variable references: $var_name, $node_id.output_key
 // Literal values: strings (quoted), numbers, true, false, null
