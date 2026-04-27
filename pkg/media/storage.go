@@ -76,11 +76,45 @@ func (s *LocalStorage) Type() StorageBackendType {
 	return StorageLocal
 }
 
+func (s *LocalStorage) resolveKeyPath(key string) (string, string, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", "", fmt.Errorf("invalid storage key")
+	}
+	if filepath.IsAbs(key) || filepath.VolumeName(key) != "" {
+		return "", "", fmt.Errorf("invalid storage key: absolute paths are not allowed")
+	}
+
+	cleanKey := filepath.Clean(key)
+	if cleanKey == "." || cleanKey == ".." {
+		return "", "", fmt.Errorf("invalid storage key: %s", key)
+	}
+
+	basePath, err := filepath.Abs(s.basePath)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve base path: %w", err)
+	}
+
+	resolvedPath := filepath.Join(basePath, cleanKey)
+	rel, err := filepath.Rel(basePath, resolvedPath)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve storage key: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", "", fmt.Errorf("invalid storage key: path escapes storage root")
+	}
+
+	return filepath.ToSlash(cleanKey), resolvedPath, nil
+}
+
 func (s *LocalStorage) Put(ctx context.Context, key string, data []byte, opts StoragePutOptions) (*StorageObject, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	path := filepath.Join(s.basePath, key)
+	cleanKey, path, err := s.resolveKeyPath(key)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return nil, fmt.Errorf("create directory: %w", err)
@@ -96,7 +130,7 @@ func (s *LocalStorage) Put(ctx context.Context, key string, data []byte, opts St
 	}
 
 	obj := &StorageObject{
-		Key:          key,
+		Key:          cleanKey,
 		Size:         info.Size(),
 		MimeType:     opts.MimeType,
 		LastModified: info.ModTime(),
@@ -104,7 +138,7 @@ func (s *LocalStorage) Put(ctx context.Context, key string, data []byte, opts St
 	}
 
 	if s.baseURL != "" {
-		obj.URL = strings.TrimRight(s.baseURL, "/") + "/" + key
+		obj.URL = strings.TrimRight(s.baseURL, "/") + "/" + cleanKey
 	} else {
 		obj.URL = "file://" + path
 	}
@@ -116,7 +150,10 @@ func (s *LocalStorage) Get(ctx context.Context, key string) (*StorageObject, err
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	path := filepath.Join(s.basePath, key)
+	cleanKey, path, err := s.resolveKeyPath(key)
+	if err != nil {
+		return nil, err
+	}
 
 	info, err := os.Stat(path)
 	if err != nil {
@@ -131,13 +168,13 @@ func (s *LocalStorage) Get(ctx context.Context, key string) (*StorageObject, err
 		return nil, fmt.Errorf("read file: %w", err)
 	}
 
-	mimeType := mime.TypeByExtension(filepath.Ext(key))
+	mimeType := mime.TypeByExtension(filepath.Ext(cleanKey))
 	if mimeType == "" {
 		mimeType = "application/octet-stream"
 	}
 
 	obj := &StorageObject{
-		Key:          key,
+		Key:          cleanKey,
 		Size:         info.Size(),
 		MimeType:     mimeType,
 		LastModified: info.ModTime(),
@@ -145,7 +182,7 @@ func (s *LocalStorage) Get(ctx context.Context, key string) (*StorageObject, err
 	}
 
 	if s.baseURL != "" {
-		obj.URL = strings.TrimRight(s.baseURL, "/") + "/" + key
+		obj.URL = strings.TrimRight(s.baseURL, "/") + "/" + cleanKey
 	} else {
 		obj.URL = "file://" + path
 	}
@@ -157,7 +194,10 @@ func (s *LocalStorage) Delete(ctx context.Context, key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	path := filepath.Join(s.basePath, key)
+	_, path, err := s.resolveKeyPath(key)
+	if err != nil {
+		return err
+	}
 
 	if err := os.Remove(path); err != nil {
 		if os.IsNotExist(err) {
@@ -173,9 +213,12 @@ func (s *LocalStorage) Exists(ctx context.Context, key string) (bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	path := filepath.Join(s.basePath, key)
+	_, path, err := s.resolveKeyPath(key)
+	if err != nil {
+		return false, err
+	}
 
-	_, err := os.Stat(path)
+	_, err = os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
@@ -191,8 +234,19 @@ func (s *LocalStorage) List(ctx context.Context, prefix string) ([]*StorageObjec
 	defer s.mu.RUnlock()
 
 	searchDir := s.basePath
+	keyDir := ""
+	basePrefix := ""
 	if prefix != "" {
-		searchDir = filepath.Join(s.basePath, filepath.Dir(prefix))
+		cleanPrefix, resolvedPrefix, err := s.resolveKeyPath(prefix)
+		if err != nil {
+			return nil, err
+		}
+		basePrefix = filepath.Base(cleanPrefix)
+		searchDir = filepath.Dir(resolvedPrefix)
+		keyDir = filepath.Dir(cleanPrefix)
+		if keyDir == "." {
+			keyDir = ""
+		}
 	}
 
 	entries, err := os.ReadDir(searchDir)
@@ -209,11 +263,8 @@ func (s *LocalStorage) List(ctx context.Context, prefix string) ([]*StorageObjec
 			continue
 		}
 		name := entry.Name()
-		if prefix != "" {
-			basePrefix := filepath.Base(prefix)
-			if basePrefix != "." && !strings.HasPrefix(name, basePrefix) {
-				continue
-			}
+		if basePrefix != "" && !strings.HasPrefix(name, basePrefix) {
+			continue
 		}
 
 		info, err := entry.Info()
@@ -222,9 +273,10 @@ func (s *LocalStorage) List(ctx context.Context, prefix string) ([]*StorageObjec
 		}
 
 		key := name
-		if prefix != "" {
-			key = filepath.Join(filepath.Dir(prefix), name)
+		if keyDir != "" {
+			key = filepath.Join(keyDir, name)
 		}
+		key = filepath.ToSlash(key)
 		objURL := ""
 		if s.baseURL != "" {
 			objURL = strings.TrimRight(s.baseURL, "/") + "/" + key
@@ -242,10 +294,14 @@ func (s *LocalStorage) List(ctx context.Context, prefix string) ([]*StorageObjec
 }
 
 func (s *LocalStorage) URL(ctx context.Context, key string, expires time.Duration) (string, error) {
-	if s.baseURL != "" {
-		return strings.TrimRight(s.baseURL, "/") + "/" + key, nil
+	cleanKey, path, err := s.resolveKeyPath(key)
+	if err != nil {
+		return "", err
 	}
-	return "file://" + filepath.Join(s.basePath, key), nil
+	if s.baseURL != "" {
+		return strings.TrimRight(s.baseURL, "/") + "/" + cleanKey, nil
+	}
+	return "file://" + path, nil
 }
 
 type S3Config struct {

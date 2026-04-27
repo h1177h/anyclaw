@@ -1055,3 +1055,83 @@ func TestLocalStorage_GetDataIntegrity(t *testing.T) {
 
 	_ = obj
 }
+
+func TestLocalStorage_RejectsEscapingRelativeKeys(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "storage-root")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatalf("mkdir root: %v", err)
+	}
+
+	store := NewLocalStorage(LocalStorageConfig{BasePath: root})
+	ctx := context.Background()
+	escapeKey := filepath.Join("..", "outside.txt")
+	outsidePath := filepath.Join(parent, "outside.txt")
+
+	if _, err := store.Put(ctx, escapeKey, []byte("escape"), StoragePutOptions{}); err == nil {
+		t.Fatal("expected put to reject escaping key")
+	}
+	if _, err := os.Stat(outsidePath); !os.IsNotExist(err) {
+		t.Fatalf("expected no file outside storage root, stat err=%v", err)
+	}
+
+	if _, err := store.Get(ctx, escapeKey); err == nil {
+		t.Fatal("expected get to reject escaping key")
+	}
+
+	if err := store.Delete(ctx, escapeKey); err == nil {
+		t.Fatal("expected delete to reject escaping key")
+	}
+
+	if _, err := store.Exists(ctx, escapeKey); err == nil {
+		t.Fatal("expected exists to reject escaping key")
+	}
+
+	if _, err := store.List(ctx, escapeKey); err == nil {
+		t.Fatal("expected list to reject escaping prefix")
+	}
+
+	if _, err := store.URL(ctx, escapeKey, 0); err == nil {
+		t.Fatal("expected url to reject escaping key")
+	}
+}
+
+func TestLocalStorage_RejectsAbsoluteKeys(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "storage-root")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatalf("mkdir root: %v", err)
+	}
+
+	absoluteKey := filepath.Join(parent, "outside.txt")
+	if err := os.WriteFile(absoluteKey, []byte("outside"), 0644); err != nil {
+		t.Fatalf("seed outside file: %v", err)
+	}
+
+	store := NewLocalStorage(LocalStorageConfig{BasePath: root})
+	ctx := context.Background()
+
+	if _, err := store.Get(ctx, absoluteKey); err == nil {
+		t.Fatal("expected get to reject absolute key")
+	}
+
+	if err := store.Delete(ctx, absoluteKey); err == nil {
+		t.Fatal("expected delete to reject absolute key")
+	}
+
+	if _, err := store.Exists(ctx, absoluteKey); err == nil {
+		t.Fatal("expected exists to reject absolute key")
+	}
+
+	if _, err := store.URL(ctx, absoluteKey, 0); err == nil {
+		t.Fatal("expected url to reject absolute key")
+	}
+
+	data, err := os.ReadFile(absoluteKey)
+	if err != nil {
+		t.Fatalf("read outside file: %v", err)
+	}
+	if string(data) != "outside" {
+		t.Fatalf("expected outside file to remain unchanged, got %q", string(data))
+	}
+}
