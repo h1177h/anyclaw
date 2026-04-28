@@ -69,7 +69,8 @@ func (a *Adapter) open(args []string) (string, error) {
 		}
 	}
 
-	cmd := exec.Command(a.freecadPath, "--background", args[0])
+	cmdArgs := append([]string{"--background"}, args...)
+	cmd := exec.Command(a.freecadPath, cmdArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
