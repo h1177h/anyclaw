@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -126,6 +127,10 @@ func (e *WorkflowExecutor) ExecuteGraphContext(ctx context.Context, graph *Graph
 
 	for _, startNode := range graph.GetStartNodes() {
 		if err := run.executeNode(ctx, startNode.ID); err != nil {
+			if isExecutionCancellation(err) {
+				markExecutionCancelled(exec, err)
+				return exec, err
+			}
 			if exec.Status != ExecutionFailed {
 				exec.Status = ExecutionFailed
 				exec.Error = &ExecutionError{
@@ -193,6 +198,9 @@ func (r *workflowExecutionRun) executeNode(ctx context.Context, nodeID string) e
 			r.applyNodeOutputMappings(node, outputs)
 			r.exec.MarkNodeCompleted(node.ID, outputs)
 			return r.executeNextNodes(ctx, node, outputs)
+		}
+		if cancelErr := ctx.Err(); cancelErr != nil {
+			return cancelErr
 		}
 
 		state := r.exec.NodeStates[node.ID]
@@ -513,6 +521,27 @@ func nodeExecutionContext(ctx context.Context, node *Node) (context.Context, con
 		return ctx, func() {}
 	}
 	return context.WithTimeout(ctx, time.Duration(node.TimeoutSec)*time.Second)
+}
+
+func isExecutionCancellation(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func markExecutionCancelled(exec *ExecutionContext, err error) {
+	if exec == nil {
+		return
+	}
+	now := time.Now().UTC()
+	exec.Status = ExecutionCancelled
+	exec.EndTime = &now
+	code := "execution_cancelled"
+	if errors.Is(err, context.DeadlineExceeded) {
+		code = "execution_deadline_exceeded"
+	}
+	exec.Error = &ExecutionError{
+		Code:    code,
+		Message: err.Error(),
+	}
 }
 
 func retryDelay(policy *RetryPolicy, attempts int) time.Duration {

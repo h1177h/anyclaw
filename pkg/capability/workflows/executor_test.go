@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 type workflowActionCall struct {
@@ -178,6 +179,64 @@ func TestWorkflowExecutorAppliesNodeTimeoutToActionRunner(t *testing.T) {
 
 	if _, err := executor.ExecuteGraph(graph, nil); err != nil {
 		t.Fatalf("ExecuteGraph: %v", err)
+	}
+}
+
+func TestWorkflowExecutorMarksInterruptedContextAsCancelled(t *testing.T) {
+	tests := []struct {
+		name     string
+		ctx      context.Context
+		cancel   context.CancelFunc
+		wantErr  error
+		wantCode string
+	}{
+		{
+			name:     "cancelled",
+			wantErr:  context.Canceled,
+			wantCode: "execution_cancelled",
+		},
+		{
+			name:     "deadline exceeded",
+			wantErr:  context.DeadlineExceeded,
+			wantCode: "execution_deadline_exceeded",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			graph := NewGraph("interrupted", "")
+			graph.AddNode(Node{
+				ID:     "run",
+				Type:   "action",
+				Name:   "Run",
+				Plugin: "policy",
+				Action: "run",
+			})
+			if tt.wantErr == context.Canceled {
+				tt.ctx, tt.cancel = context.WithCancel(context.Background())
+				tt.cancel()
+			} else {
+				tt.ctx, tt.cancel = context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+				defer tt.cancel()
+			}
+
+			executor := NewWorkflowExecutor(nil, nil)
+			executor.SetActionRunner(&recordingWorkflowActionRunner{})
+
+			exec, err := executor.ExecuteGraphContext(tt.ctx, graph, nil)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+			if exec == nil || exec.Status != ExecutionCancelled {
+				t.Fatalf("execution = %#v, want cancelled status", exec)
+			}
+			if exec.Error == nil || exec.Error.Code != tt.wantCode {
+				t.Fatalf("execution error = %#v, want %s", exec.Error, tt.wantCode)
+			}
+			if exec.EndTime == nil {
+				t.Fatal("cancelled execution should record end time")
+			}
+		})
 	}
 }
 
