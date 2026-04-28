@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -24,7 +25,7 @@ type Config struct {
 func New(cfg Config) *Client {
 	apiKey := cfg.APIKey
 	if apiKey == "" {
-		apiKey = "novita"
+		apiKey = os.Getenv("NOVITA_API_KEY")
 	}
 	return &Client{
 		apiKey:     apiKey,
@@ -87,6 +88,9 @@ func (c *Client) chat(ctx context.Context, args []string) (string, error) {
 	if len(args) < 2 {
 		return "", fmt.Errorf("chat requires <model> <prompt>")
 	}
+	if err := c.requireAPIKey(); err != nil {
+		return "", err
+	}
 	model := args[0]
 	prompt := strings.Join(args[1:], " ")
 
@@ -126,6 +130,10 @@ func (c *Client) chat(ctx context.Context, args []string) (string, error) {
 }
 
 func (c *Client) models(ctx context.Context) (string, error) {
+	if err := c.requireAPIKey(); err != nil {
+		return "", err
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/models", nil)
 	if err != nil {
 		return "", err
@@ -140,6 +148,13 @@ func (c *Client) models(ctx context.Context) (string, error) {
 
 	b, _ := io.ReadAll(resp.Body)
 	return string(b), nil
+}
+
+func (c *Client) requireAPIKey() error {
+	if strings.TrimSpace(c.apiKey) == "" {
+		return fmt.Errorf("NOVITA_API_KEY is required")
+	}
+	return nil
 }
 
 func (c *Client) help() (string, error) {
