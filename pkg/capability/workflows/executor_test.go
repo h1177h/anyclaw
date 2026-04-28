@@ -315,15 +315,32 @@ func TestWorkflowExecutorRunsJoinAfterAllParentsComplete(t *testing.T) {
 
 func TestWorkflowExecutorLoopResolvesInputCollection(t *testing.T) {
 	graph := NewGraph("loop", "")
-	graph.AddNode(Node{
+	loopID := graph.AddNode(Node{
 		ID:       "each_item",
 		Type:     "loop",
 		Name:     "Each item",
 		LoopVar:  "item",
 		LoopOver: "$items",
 	})
+	collectID := graph.AddNode(Node{
+		ID:     "collect",
+		Type:   "action",
+		Name:   "Collect item",
+		Plugin: "policy",
+		Action: "collect",
+		Inputs: map[string]any{
+			"item":  "$item",
+			"index": "$item_index",
+			"count": "$item_count",
+		},
+	})
+	graph.AddEdge(loopID, collectID, "default")
 
-	exec, err := NewWorkflowExecutor(nil, nil).ExecuteGraph(graph, map[string]any{
+	runner := &recordingWorkflowActionRunner{}
+	executor := NewWorkflowExecutor(nil, nil)
+	executor.SetActionRunner(runner)
+
+	exec, err := executor.ExecuteGraph(graph, map[string]any{
 		"items": []any{"a", "b", "c"},
 	})
 	if err != nil {
@@ -335,6 +352,79 @@ func TestWorkflowExecutorLoopResolvesInputCollection(t *testing.T) {
 	}
 	if !reflect.DeepEqual(outputs["items"], []any{"a", "b", "c"}) {
 		t.Fatalf("loop items = %#v, want original collection", outputs["items"])
+	}
+	if got := callNodeIDs(runner.calls); !reflect.DeepEqual(got, []string{"collect", "collect", "collect"}) {
+		t.Fatalf("loop body calls = %v, want collect once per item", got)
+	}
+	for i, want := range []any{"a", "b", "c"} {
+		if runner.calls[i].Inputs["item"] != want {
+			t.Fatalf("call %d item = %#v, want %#v", i, runner.calls[i].Inputs["item"], want)
+		}
+		if runner.calls[i].Inputs["index"] != i {
+			t.Fatalf("call %d index = %#v, want %d", i, runner.calls[i].Inputs["index"], i)
+		}
+		if runner.calls[i].Inputs["count"] != 3 {
+			t.Fatalf("call %d count = %#v, want 3", i, runner.calls[i].Inputs["count"])
+		}
+	}
+	if exec.Variables["item"] != nil || exec.Variables["item_index"] != nil {
+		t.Fatalf("loop variables leaked after execution: %#v", exec.Variables)
+	}
+}
+
+func TestWorkflowExecutorContinuesAfterLoopJoin(t *testing.T) {
+	graph := NewGraph("loop join", "")
+	loopID := graph.AddNode(Node{
+		ID:       "loop",
+		Type:     "loop",
+		Name:     "Loop",
+		LoopVar:  "item",
+		LoopOver: "$items",
+	})
+	bodyID := graph.AddNode(Node{
+		ID:     "body",
+		Type:   "action",
+		Name:   "Body",
+		Plugin: "policy",
+		Action: "body",
+		Inputs: map[string]any{"item": "$item"},
+	})
+	joinID := graph.AddNode(Node{
+		ID:   "join",
+		Type: "join",
+		Name: "Join",
+	})
+	finalID := graph.AddNode(Node{
+		ID:     "final",
+		Type:   "action",
+		Name:   "Final",
+		Plugin: "policy",
+		Action: "final",
+		Inputs: map[string]any{"iterations": "$loop.iterations"},
+	})
+	graph.AddEdge(loopID, bodyID, "each")
+	graph.AddEdge(loopID, joinID, "default")
+	graph.AddEdge(joinID, finalID, "default")
+
+	runner := &recordingWorkflowActionRunner{}
+	executor := NewWorkflowExecutor(nil, nil)
+	executor.SetActionRunner(runner)
+
+	exec, err := executor.ExecuteGraph(graph, map[string]any{"items": []any{"x", "y"}})
+	if err != nil {
+		t.Fatalf("ExecuteGraph: %v", err)
+	}
+	if got := callNodeIDs(runner.calls); !reflect.DeepEqual(got, []string{"body", "body", "final"}) {
+		t.Fatalf("calls = %v, want loop body twice then final", got)
+	}
+	if runner.calls[2].Inputs["iterations"] != 2 {
+		t.Fatalf("final iterations input = %#v, want 2", runner.calls[2].Inputs["iterations"])
+	}
+	if exec.NodeStates[bodyID] != nil {
+		t.Fatalf("loop body state should not be retained as final singleton state: %#v", exec.NodeStates[bodyID])
+	}
+	if exec.NodeStates[joinID].Status != NodeCompleted {
+		t.Fatalf("join state = %#v, want completed", exec.NodeStates[joinID])
 	}
 }
 

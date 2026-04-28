@@ -156,6 +156,12 @@ type workflowExecutionRun struct {
 	executions int
 }
 
+type nodeExecutionResult struct {
+	outputs             map[string]any
+	traverseChildren    bool
+	nextNodeIDsOverride []string
+}
+
 func (r *workflowExecutionRun) executeNode(ctx context.Context, nodeID string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -191,12 +197,20 @@ func (r *workflowExecutionRun) executeNode(ctx context.Context, nodeID string) e
 		}
 		r.exec.MarkNodeStarted(node.ID, inputs)
 		nodeCtx, cancel := nodeExecutionContext(ctx, node)
-		outputs, err := r.executeNodeBody(nodeCtx, node, inputs)
+		result, err := r.executeNodeBody(nodeCtx, node, inputs)
 		cancel()
 		if err == nil {
-			outputs = cloneAnyMap(outputs)
+			outputs := cloneAnyMap(result.outputs)
 			r.applyNodeOutputMappings(node, outputs)
 			r.exec.MarkNodeCompleted(node.ID, outputs)
+			if !result.traverseChildren {
+				for _, nextID := range result.nextNodeIDsOverride {
+					if err := r.executeNode(ctx, nextID); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
 			return r.executeNextNodes(ctx, node, outputs)
 		}
 		if cancelErr := ctx.Err(); cancelErr != nil {
@@ -216,20 +230,33 @@ func (r *workflowExecutionRun) executeNode(ctx context.Context, nodeID string) e
 	}
 }
 
-func (r *workflowExecutionRun) executeNodeBody(ctx context.Context, node *Node, inputs map[string]any) (map[string]any, error) {
+func (r *workflowExecutionRun) executeNodeBody(ctx context.Context, node *Node, inputs map[string]any) (nodeExecutionResult, error) {
+	result := nodeExecutionResult{traverseChildren: true}
 	switch node.Type {
 	case "action":
-		return r.executeActionNode(ctx, node, inputs)
+		outputs, err := r.executeActionNode(ctx, node, inputs)
+		result.outputs = outputs
+		return result, err
 	case "condition":
-		return r.executeConditionNode(node, inputs)
+		outputs, err := r.executeConditionNode(node, inputs)
+		result.outputs = outputs
+		return result, err
 	case "loop":
-		return r.executeLoopNode(node)
+		outputs, nextNodeIDs, err := r.executeLoopNode(ctx, node)
+		result.outputs = outputs
+		result.traverseChildren = false
+		result.nextNodeIDsOverride = nextNodeIDs
+		return result, err
 	case "parallel":
-		return r.executeParallelNode(node)
+		outputs, err := r.executeParallelNode(node)
+		result.outputs = outputs
+		return result, err
 	case "join":
-		return r.executeJoinNode(node)
+		outputs, err := r.executeJoinNode(node)
+		result.outputs = outputs
+		return result, err
 	default:
-		return nil, fmt.Errorf("unsupported node type: %s", node.Type)
+		return result, fmt.Errorf("unsupported node type: %s", node.Type)
 	}
 }
 
@@ -259,20 +286,39 @@ func (r *workflowExecutionRun) executeConditionNode(node *Node, inputs map[strin
 	return map[string]any{"result": result}, nil
 }
 
-func (r *workflowExecutionRun) executeLoopNode(node *Node) (map[string]any, error) {
+func (r *workflowExecutionRun) executeLoopNode(ctx context.Context, node *Node) (map[string]any, []string, error) {
 	value := r.resolveLoopValue(node.LoopOver)
 	items, err := loopItems(value)
 	if err != nil {
-		return nil, fmt.Errorf("loop node %s: %w", node.ID, err)
+		return nil, nil, fmt.Errorf("loop node %s: %w", node.ID, err)
 	}
 	limit := r.maxLoopIterations()
 	if limit > 0 && len(items) > limit {
-		return nil, fmt.Errorf("loop node %s exceeds %d iterations", node.ID, limit)
+		return nil, nil, fmt.Errorf("loop node %s exceeds %d iterations", node.ID, limit)
+	}
+	bodyNodeIDs, continuationNodeIDs := r.loopEdgeNodeIDs(node.ID)
+	results := make([]any, 0, len(items)*len(bodyNodeIDs))
+	restore := r.snapshotLoopVariables(node.LoopVar)
+	defer restore()
+	for i, item := range items {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+		beforeStates := r.snapshotNodeStateKeys()
+		r.bindLoopVariables(node.LoopVar, item, i, len(items))
+		for _, bodyNodeID := range bodyNodeIDs {
+			if err := r.executeNode(ctx, bodyNodeID); err != nil {
+				return nil, nil, fmt.Errorf("loop node %s iteration %d: %w", node.ID, i, err)
+			}
+		}
+		results = append(results, r.collectIterationResults(i, beforeStates)...)
+		r.restoreIterationNodeStates(beforeStates)
 	}
 	return map[string]any{
 		"iterations": len(items),
 		"items":      cloneAny(items),
-	}, nil
+		"results":    results,
+	}, continuationNodeIDs, nil
 }
 
 func (r *workflowExecutionRun) executeParallelNode(node *Node) (map[string]any, error) {
@@ -461,6 +507,100 @@ func (r *workflowExecutionRun) nextNodeIDsForTypes(nodeID string, allowed map[st
 		}
 	}
 	return next
+}
+
+func (r *workflowExecutionRun) loopEdgeNodeIDs(nodeID string) ([]string, []string) {
+	body := make([]string, 0)
+	continuation := make([]string, 0)
+	for _, edge := range r.graph.Edges {
+		if edge.Source != nodeID {
+			continue
+		}
+		switch normalizeEdgeType(edge.Type) {
+		case "each", "branch":
+			body = append(body, edge.Target)
+		default:
+			continuation = append(continuation, edge.Target)
+		}
+	}
+	if len(body) == 0 {
+		return continuation, nil
+	}
+	return body, continuation
+}
+
+func (r *workflowExecutionRun) bindLoopVariables(loopVar string, item any, index int, count int) {
+	loopVar = strings.TrimSpace(loopVar)
+	if loopVar == "" {
+		return
+	}
+	r.exec.Variables[loopVar] = cloneAny(item)
+	r.exec.Variables[loopVar+"_index"] = index
+	r.exec.Variables[loopVar+"_first"] = index == 0
+	r.exec.Variables[loopVar+"_last"] = index == count-1
+	r.exec.Variables[loopVar+"_count"] = count
+}
+
+func (r *workflowExecutionRun) snapshotLoopVariables(loopVar string) func() {
+	loopVar = strings.TrimSpace(loopVar)
+	if loopVar == "" {
+		return func() {}
+	}
+	keys := []string{
+		loopVar,
+		loopVar + "_index",
+		loopVar + "_first",
+		loopVar + "_last",
+		loopVar + "_count",
+	}
+	originals := make(map[string]any, len(keys))
+	present := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		if value, ok := r.exec.Variables[key]; ok {
+			originals[key] = cloneAny(value)
+			present[key] = true
+		}
+	}
+	return func() {
+		for _, key := range keys {
+			if present[key] {
+				r.exec.Variables[key] = cloneAny(originals[key])
+				continue
+			}
+			delete(r.exec.Variables, key)
+		}
+	}
+}
+
+func (r *workflowExecutionRun) snapshotNodeStateKeys() map[string]bool {
+	keys := make(map[string]bool, len(r.exec.NodeStates))
+	for key := range r.exec.NodeStates {
+		keys[key] = true
+	}
+	return keys
+}
+
+func (r *workflowExecutionRun) collectIterationResults(iteration int, before map[string]bool) []any {
+	results := make([]any, 0)
+	for nodeID, state := range r.exec.NodeStates {
+		if before[nodeID] || state == nil || state.Outputs == nil {
+			continue
+		}
+		results = append(results, map[string]any{
+			"iteration": iteration,
+			"node_id":   nodeID,
+			"outputs":   cloneAnyMap(state.Outputs),
+		})
+	}
+	return results
+}
+
+func (r *workflowExecutionRun) restoreIterationNodeStates(before map[string]bool) {
+	for nodeID := range r.exec.NodeStates {
+		if !before[nodeID] {
+			delete(r.exec.NodeStates, nodeID)
+		}
+	}
 }
 
 func (r *workflowExecutionRun) markNodeSkipped(nodeID string, err error) {
