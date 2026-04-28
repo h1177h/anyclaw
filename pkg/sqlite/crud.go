@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -127,19 +128,14 @@ func (tx *Transaction) CountRows(ctx context.Context, table string, filters ...F
 }
 
 func (db *DB) RowExists(ctx context.Context, table string, filters ...Filter) (bool, error) {
-	count, err := db.CountRows(ctx, table, filters...)
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
+	return rowExists(ctx, db, table, filters)
 }
 
 func (tx *Transaction) RowExists(ctx context.Context, table string, filters ...Filter) (bool, error) {
-	count, err := tx.CountRows(ctx, table, filters...)
-	if err != nil {
+	if err := tx.ensureActive(); err != nil {
 		return false, err
 	}
-	return count > 0, nil
+	return rowExists(ctx, tx.tx, table, filters)
 }
 
 func (db *DB) BeginTransaction(ctx context.Context, opts *sql.TxOptions) (*Transaction, error) {
@@ -410,6 +406,41 @@ func countRows(ctx context.Context, querier sqlQuerier, table string, filters []
 		return 0, fmt.Errorf("sqlite: count rows in %q: %w", table, err)
 	}
 	return count, nil
+}
+
+func rowExists(ctx context.Context, querier sqlQuerier, table string, filters []Filter) (bool, error) {
+	query, args, err := buildExists(table, filters)
+	if err != nil {
+		return false, err
+	}
+
+	var marker int
+	if err := querier.QueryRowContext(ctx, query, args...).Scan(&marker); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("sqlite: check row exists in %q: %w", table, err)
+	}
+	return true, nil
+}
+
+func buildExists(table string, filters []Filter) (string, []any, error) {
+	tableSQL, err := quoteQualifiedIdentifier(table)
+	if err != nil {
+		return "", nil, err
+	}
+	query := fmt.Sprintf("SELECT 1 FROM %s", tableSQL)
+	args := []any(nil)
+	if len(filters) > 0 {
+		whereSQL, whereArgs, err := buildWhereClause(filters)
+		if err != nil {
+			return "", nil, err
+		}
+		query += " WHERE " + whereSQL
+		args = whereArgs
+	}
+	query += " LIMIT 1"
+	return query, args, nil
 }
 
 func buildSelect(table string, opts SelectOptions) (string, []any, error) {

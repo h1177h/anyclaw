@@ -98,6 +98,33 @@ func TestCRUDHelpersSelectOptions(t *testing.T) {
 	}
 }
 
+func TestCRUDHelpersRowExistsBuildsLimitOneQuery(t *testing.T) {
+	query, args, err := buildExists("test", []Filter{{Column: "value", Op: "LIKE", Value: "t%"}})
+	if err != nil {
+		t.Fatalf("buildExists: %v", err)
+	}
+	if want := `SELECT 1 FROM "test" WHERE "value" LIKE ? LIMIT 1`; query != want {
+		t.Fatalf("query = %q, want %q", query, want)
+	}
+	if strings.Contains(strings.ToUpper(query), "COUNT(") {
+		t.Fatalf("exists query should not aggregate: %q", query)
+	}
+	if len(args) != 1 || args[0] != "t%" {
+		t.Fatalf("args = %#v, want t%%", args)
+	}
+
+	query, args, err = buildExists("test", nil)
+	if err != nil {
+		t.Fatalf("buildExists without filters: %v", err)
+	}
+	if want := `SELECT 1 FROM "test" LIMIT 1`; query != want {
+		t.Fatalf("query without filters = %q, want %q", query, want)
+	}
+	if len(args) != 0 {
+		t.Fatalf("args without filters = %#v, want none", args)
+	}
+}
+
 func TestCRUDHelpersUpsertRow(t *testing.T) {
 	db := setupTestDB(t, InMemoryConfig())
 	ctx := context.Background()
