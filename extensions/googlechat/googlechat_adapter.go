@@ -14,10 +14,8 @@ import (
 )
 
 type Config struct {
-	ProjectID         string `json:"project_id"`
-	ServiceAccountKey string `json:"service_account_key,omitempty"`
-	WebhookURL        string `json:"webhook_url,omitempty"`
-	Port              int    `json:"port"`
+	WebhookURL string `json:"webhook_url"`
+	Port       int    `json:"port"`
 }
 
 type GoogleChatExtension struct {
@@ -263,33 +261,10 @@ func (e *GoogleChatExtension) handleMessage(w http.ResponseWriter, payload *stru
 }
 
 func (e *GoogleChatExtension) sendReply(messageName, text string) error {
-	if e.config.WebhookURL != "" {
-		return e.sendViaWebhook(text)
+	if strings.TrimSpace(e.config.WebhookURL) == "" {
+		return fmt.Errorf("google chat webhook_url is required for outbound replies to %s", messageName)
 	}
-
-	u := fmt.Sprintf("https://chat.googleapis.com/v1/%s/replies", messageName)
-	payload := map[string]any{
-		"text": text,
-	}
-	body, _ := json.Marshal(payload)
-
-	req, err := http.NewRequest(http.MethodPost, u, strings.NewReader(string(body)))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := e.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("google chat reply error: %s: %s", resp.Status, string(respBody))
-	}
-	return nil
+	return e.sendViaWebhook(text)
 }
 
 func (e *GoogleChatExtension) sendViaWebhook(text string) error {

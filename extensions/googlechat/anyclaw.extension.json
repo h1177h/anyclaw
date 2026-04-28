@@ -10,19 +10,11 @@
   "config_schema": {
     "type": "object",
     "properties": {
-      "project_id": {
-        "type": "string",
-        "description": "Google Cloud Project ID"
-      },
-      "service_account_key": {
-        "type": "string",
-        "description": "Path to service account JSON key file"
-      },
       "webhook_url": {
         "type": "string",
-        "description": "Google Chat webhook URL for outbound messages"
+        "description": "Google Chat incoming webhook URL for outbound replies"
       }
     },
-    "required": ["project_id"]
+    "required": ["webhook_url"]
   }
 }
