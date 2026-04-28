@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"sort"
@@ -231,7 +232,7 @@ func (tm *TriggerManager) HandleWebhookWithSecret(
 		if !cfg.Enabled || cfg.Type != TriggerWebhook || cfg.WebhookPath != path {
 			return false
 		}
-		return cfg.WebhookSecret == "" || cfg.WebhookSecret == secret
+		return webhookSecretMatches(cfg.WebhookSecret, secret)
 	})
 	if len(matching) == 0 {
 		return nil, fmt.Errorf("no webhook trigger found for path: %s", path)
@@ -611,6 +612,13 @@ func matchesEventType(allowed []string, eventType string) bool {
 		}
 	}
 	return false
+}
+
+func webhookSecretMatches(expected string, provided string) bool {
+	if expected == "" {
+		return true
+	}
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(provided)) == 1
 }
 
 func buildTriggerRun(

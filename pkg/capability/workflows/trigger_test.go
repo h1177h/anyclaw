@@ -367,6 +367,9 @@ func TestHandleWebhookEnforcesConfiguredSecret(t *testing.T) {
 	if _, err := tm.HandleWebhook(context.Background(), "/hooks/private", nil); err == nil {
 		t.Fatal("expected secret-protected webhook to reject missing secret")
 	}
+	if _, err := tm.HandleWebhookWithSecret(context.Background(), "/hooks/private", "wrong-token", nil); err == nil {
+		t.Fatal("expected secret-protected webhook to reject wrong secret")
+	}
 	runs, err := tm.HandleWebhookWithSecret(context.Background(), "/hooks/private", "secret-token", nil)
 	if err != nil {
 		t.Fatalf("HandleWebhookWithSecret: %v", err)
