@@ -87,7 +87,7 @@ func (c *Client) Run(ctx context.Context, args []string) (string, error) {
 func (c *Client) get(ctx context.Context, args []string) (string, error) {
 	resourceType := "pods"
 	if len(args) > 0 {
-		if !isKnownResource(args[0]) {
+		if isKnownResource(args[0]) {
 			resourceType = args[0]
 			args = args[1:]
 		}
