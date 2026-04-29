@@ -420,57 +420,5 @@ func (m *ModularConfigManager) saveModules() error {
 
 // getDefaultConfig 获取默认配置
 func (m *ModularConfigManager) getDefaultConfig() *Config {
-	return &Config{
-		LLM: LLMConfig{
-			Provider:    "openai",
-			Model:       "gpt-4o-mini",
-			Temperature: 0.7,
-			MaxTokens:   4096,
-		},
-		Agent: AgentConfig{
-			Name:                            "AnyClaw",
-			PermissionLevel:                 "full",
-			RequireConfirmationForDangerous: true,
-			Profiles: []AgentProfile{
-				{
-					Name:            "default",
-					Description:     "Default agent profile",
-					PermissionLevel: "full",
-				},
-			},
-		},
-		Skills: SkillsConfig{
-			Dir:      "skills",
-			AutoLoad: true,
-		},
-		Memory: MemoryConfig{
-			Dir:        "memory",
-			MaxHistory: 100,
-			Format:     "json",
-			AutoSave:   true,
-		},
-		Gateway: GatewayConfig{
-			Host:        "localhost",
-			Port:        18789,
-			Bind:        "loopback",
-			WorkerCount: 4,
-		},
-		Channels: ChannelsConfig{
-			Routing: RoutingConfig{
-				Mode: "auto",
-			},
-		},
-		Sandbox: SandboxConfig{
-			Enabled:       false,
-			ExecutionMode: "host-reviewed",
-		},
-		Security: SecurityConfig{
-			ProtectedPaths: []string{
-				"~/.ssh",
-				"~/.gnupg",
-				"~/.config",
-			},
-			CommandTimeoutSeconds: 30,
-		},
-	}
+	return DefaultConfig()
 }

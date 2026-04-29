@@ -3,10 +3,13 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
 )
+
+const maxFetchBytes = 2 * 1024 * 1024
 
 type SearchResult struct {
 	Title       string
@@ -76,9 +79,12 @@ func Fetch(ctx context.Context, urlStr string) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFetchBytes+1))
 	if err != nil {
 		return "", err
+	}
+	if len(body) > maxFetchBytes {
+		return "", fmt.Errorf("response exceeds %d byte limit", maxFetchBytes)
 	}
 
 	return string(body), nil

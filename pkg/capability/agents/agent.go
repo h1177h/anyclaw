@@ -28,6 +28,10 @@ type LLMCaller interface {
 	Name() string
 }
 
+type LLMStreamResponder interface {
+	StreamChatResponse(ctx context.Context, messages []llm.Message, tools []llm.ToolDefinition, onChunk func(string)) (*llm.Response, error)
+}
+
 type Agent struct {
 	config             Config
 	llm                LLMCaller
@@ -194,12 +198,13 @@ func (a *Agent) RunStream(ctx context.Context, userInput string, onChunk func(st
 	toolDefs := buildToolDefinitionsFromInfos(selectedTools)
 
 	a.heartbeatContextExecution(exec)
-	err = a.llm.StreamChat(ctx, messages, toolDefs, func(chunk string) {
-		onChunk(chunk)
-	})
+	response, err := a.chatWithToolsStream(ctx, messages, toolDefs, onChunk)
 	if err != nil {
 		return err
 	}
+	a.appendHistoryMessage(ctx, "assistant", response)
+	a.memory.Add(memory.MemoryEntry{Type: "conversation", Role: "user", Content: userInput})
+	a.memory.Add(memory.MemoryEntry{Type: "conversation", Role: "assistant", Content: response})
 
 	return nil
 }
@@ -225,8 +230,35 @@ func (a *Agent) handleBootstrapRitual(ctx context.Context, userInput string) (st
 }
 
 func (a *Agent) chatWithTools(ctx context.Context, messages []llm.Message, toolDefs []llm.ToolDefinition) (string, error) {
+	return a.chatWithToolsUsing(ctx, messages, toolDefs, nil)
+}
+
+func (a *Agent) chatWithToolsStream(ctx context.Context, messages []llm.Message, toolDefs []llm.ToolDefinition, onChunk func(string)) (string, error) {
+	if onChunk == nil {
+		return a.chatWithToolsUsing(ctx, messages, toolDefs, nil)
+	}
+	var emitted bool
+	forwardChunk := func(chunk string) {
+		if chunk == "" {
+			return
+		}
+		emitted = true
+		onChunk(chunk)
+	}
+	response, err := a.chatWithToolsUsing(ctx, messages, toolDefs, forwardChunk)
+	if err != nil {
+		return "", err
+	}
+	if !emitted && response != "" {
+		forwardChunk(response)
+	}
+	return response, nil
+}
+
+func (a *Agent) chatWithToolsUsing(ctx context.Context, messages []llm.Message, toolDefs []llm.ToolDefinition, onChunk func(string)) (string, error) {
+	loopDetector := NewToolLoopDetector(3)
 	for toolCalls := 0; ; toolCalls++ {
-		resp, err := a.llm.Chat(ctx, messages, toolDefs)
+		resp, err := a.chatModelTurn(ctx, messages, toolDefs, onChunk)
 		if err != nil {
 			return "", fmt.Errorf("LLM error: %w", err)
 		}
@@ -259,6 +291,9 @@ func (a *Agent) chatWithTools(ctx context.Context, messages []llm.Message, toolD
 		assistantCallMsg := llm.Message{Role: "assistant", Content: resp.Content, ToolCalls: make([]llm.ToolCall, 0, len(calls))}
 		approvalHook := toolApprovalHookFromContext(ctx)
 		for _, tc := range calls {
+			if loopDetector.Check("agent-turn", tc.Name, toolCallArgsHash(tc.Args)) {
+				return "", fmt.Errorf("tool loop detected: %s repeated with identical arguments", tc.Name)
+			}
 			currentToolCall := llm.ToolCall{ID: tc.ID, Type: "function", Function: llm.FunctionCall{Name: tc.Name, Arguments: mustJSON(tc.Args)}}
 			if approvalHook != nil {
 				if err := approvalHook(ctx, tc); err != nil {
@@ -290,6 +325,60 @@ func (a *Agent) chatWithTools(ctx context.Context, messages []llm.Message, toolD
 		messages = append(messages, toolMessages...)
 		messages = append(messages, llm.Message{Role: "user", Content: a.toolContinuationPrompt(results)})
 	}
+}
+
+func (a *Agent) chatModelTurn(ctx context.Context, messages []llm.Message, toolDefs []llm.ToolDefinition, onChunk func(string)) (*llm.Response, error) {
+	if onChunk == nil {
+		return a.llm.Chat(ctx, messages, toolDefs)
+	}
+
+	var emitted bool
+	forwardChunk := func(chunk string) {
+		if chunk == "" {
+			return
+		}
+		emitted = true
+		onChunk(chunk)
+	}
+
+	if streamer, ok := a.llm.(LLMStreamResponder); ok {
+		resp, err := streamer.StreamChatResponse(ctx, messages, toolDefs, forwardChunk)
+		if err != nil {
+			return nil, err
+		}
+		if resp == nil {
+			resp = &llm.Response{}
+		}
+		if !emitted && len(resp.ToolCalls) == 0 && resp.Content != "" {
+			forwardChunk(resp.Content)
+		}
+		return resp, nil
+	}
+
+	if len(toolDefs) == 0 {
+		var content strings.Builder
+		err := a.llm.StreamChat(ctx, messages, toolDefs, func(chunk string) {
+			content.WriteString(chunk)
+			forwardChunk(chunk)
+		})
+		if err != nil {
+			return nil, err
+		}
+		return &llm.Response{Content: content.String()}, nil
+	}
+
+	return a.llm.Chat(ctx, messages, toolDefs)
+}
+
+func toolCallArgsHash(args map[string]any) string {
+	if len(args) == 0 {
+		return "{}"
+	}
+	data, err := json.Marshal(args)
+	if err != nil {
+		return fmt.Sprintf("%v", args)
+	}
+	return string(data)
 }
 
 type ToolCall struct {
@@ -670,27 +759,12 @@ func (a *Agent) selectToolInfos(userInput string) []tools.ToolInfo {
 	}
 
 	query := normalizeToolSelectionText(userInput)
-	if !shouldExposeToolsForInput(query, allTools) && !a.shouldExposeCLIHubIntentTools(userInput) {
+	cliHubIntent := a.shouldExposeCLIHubIntentTools(userInput)
+	if !shouldExposeToolsForInput(query, allTools) && !cliHubIntent {
 		return nil
 	}
 
-	coreExact := map[string]struct{}{
-		"read_file":                {},
-		"write_file":               {},
-		"list_directory":           {},
-		"search_files":             {},
-		"run_command":              {},
-		"memory_search":            {},
-		"memory_get":               {},
-		"web_search":               {},
-		"fetch_url":                {},
-		"clihub_catalog":           {},
-		"clihub_exec":              {},
-		"intent_route":             {},
-		"intent_list_capabilities": {},
-		"claw_bridge_context":      {},
-		"delegate_task":            {},
-	}
+	coreExact := selectedCoreToolNames(query, userInput, cliHubIntent)
 	corePrefixes := []string{"browser_", "desktop_", "skill_"}
 	appPrefixes := matchedToolPrefixes(query, allTools)
 
@@ -712,6 +786,68 @@ func (a *Agent) selectToolInfos(userInput string) []tools.ToolInfo {
 	}
 
 	return selected
+}
+
+func selectedCoreToolNames(query string, rawInput string, cliHubIntent bool) map[string]struct{} {
+	selected := make(map[string]struct{})
+	add := func(names ...string) {
+		for _, name := range names {
+			selected[name] = struct{}{}
+		}
+	}
+
+	rawLower := strings.ToLower(strings.TrimSpace(rawInput))
+	cjkAction := containsCJKActionIntent(query)
+	naturalAction := containsNaturalActionIntent(query)
+
+	if cjkAction || hasAnyToolSelectionKeyword(query, rawLower, "read", "view", "show", "open", "inspect", "file", "folder", "directory", "list", "search", "find", "code") {
+		add("read_file", "read", "list_directory", "search_files")
+	}
+	if cjkAction || naturalAction || hasAnyToolSelectionKeyword(query, rawLower, "write", "edit", "modify", "change", "create", "delete", "remove", "patch", "apply", "fix", "implement", "code", "refactor") {
+		add("write_file", "write", "edit", "apply_patch")
+	}
+	if cjkAction || hasAnyToolSelectionKeyword(query, rawLower, "run", "execute", "command", "terminal", "shell", "install", "build", "test", "compile", "start") {
+		add("run_command", "exec", "process")
+	}
+	if hasAnyToolSelectionKeyword(query, rawLower, "web", "search", "browse", "research", "latest", "online") {
+		add("web_search")
+	}
+	if strings.Contains(rawLower, "http://") || strings.Contains(rawLower, "https://") || hasAnyToolSelectionKeyword(query, rawLower, "url", "fetch", "download", "website", "page") {
+		add("fetch_url", "web_fetch")
+	}
+	if hasAnyToolSelectionKeyword(query, rawLower, "image", "picture", "photo", "screenshot", "vision", "ocr") {
+		add("image", "image_analyze")
+	}
+	if hasAnyToolSelectionKeyword(query, rawLower, "memory", "remember", "recall", "history") {
+		add("memory_search", "memory_get")
+	}
+	if hasAnyToolSelectionKeyword(query, rawLower, "plan", "steps", "todo", "task", "debug", "architecture", "design") {
+		add("update_plan")
+	}
+	if hasAnyToolSelectionKeyword(query, rawLower, "session", "status", "context") {
+		add("session_status", "claw_bridge_context")
+	}
+	if cliHubIntent || hasAnyToolSelectionKeyword(query, rawLower, "clihub", "intent", "capability") {
+		add("clihub_catalog", "clihub_exec", "intent_route", "intent_list_capabilities")
+	}
+	if hasAnyToolSelectionKeyword(query, rawLower, "delegate", "subagent", "sub agent") {
+		add("delegate_task")
+	}
+
+	return selected
+}
+
+func hasAnyToolSelectionKeyword(query string, rawLower string, keywords ...string) bool {
+	for _, keyword := range keywords {
+		keyword = strings.TrimSpace(strings.ToLower(keyword))
+		if keyword == "" {
+			continue
+		}
+		if strings.Contains(query, keyword) || strings.Contains(rawLower, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Agent) shouldExposeCLIHubIntentTools(userInput string) bool {

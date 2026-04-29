@@ -55,11 +55,42 @@ func TestDefaultConfig(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("default config should be valid: %v", err)
 	}
+	if cfg.Agent.PermissionLevel != "limited" {
+		t.Fatalf("default main agent permission_level = %q, want limited", cfg.Agent.PermissionLevel)
+	}
+	if cfg.Sandbox.ExecutionMode != "sandbox" {
+		t.Fatalf("default sandbox.execution_mode = %q, want sandbox", cfg.Sandbox.ExecutionMode)
+	}
 	if cfg.Sandbox.DockerImage != DefaultSandboxDockerImage {
 		t.Fatalf("default sandbox docker image = %q, want %q", cfg.Sandbox.DockerImage, DefaultSandboxDockerImage)
 	}
 	if cfg.Sandbox.DockerImage == "alpine:3.20" {
 		t.Fatal("default sandbox docker image should use the bundled sandbox image, not plain Alpine")
+	}
+}
+
+func TestModularManagerMissingConfigUsesCanonicalDefaults(t *testing.T) {
+	manager := NewModularConfigManager(filepath.Join(t.TempDir(), "missing.json"))
+	cfg, err := manager.Load()
+	if err != nil {
+		t.Fatalf("Load missing modular config: %v", err)
+	}
+	defaults := DefaultConfig()
+
+	if !reflect.DeepEqual(cfg.LLM, defaults.LLM) {
+		t.Fatalf("modular default LLM drifted: %#v want %#v", cfg.LLM, defaults.LLM)
+	}
+	if !reflect.DeepEqual(cfg.Memory, defaults.Memory) {
+		t.Fatalf("modular default memory drifted: %#v want %#v", cfg.Memory, defaults.Memory)
+	}
+	if !reflect.DeepEqual(cfg.Gateway, defaults.Gateway) {
+		t.Fatalf("modular default gateway drifted: %#v want %#v", cfg.Gateway, defaults.Gateway)
+	}
+	if !reflect.DeepEqual(cfg.Sandbox, defaults.Sandbox) {
+		t.Fatalf("modular default sandbox drifted: %#v want %#v", cfg.Sandbox, defaults.Sandbox)
+	}
+	if !reflect.DeepEqual(cfg.Security, defaults.Security) {
+		t.Fatalf("modular default security drifted: %#v want %#v", cfg.Security, defaults.Security)
 	}
 }
 

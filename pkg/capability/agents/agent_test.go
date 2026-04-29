@@ -27,6 +27,36 @@ type stubAgentLLM struct {
 	toolDefs  [][]llm.ToolDefinition
 }
 
+type streamAgentTurn struct {
+	response *llm.Response
+	chunks   []string
+}
+
+type streamingAgentLLM struct {
+	stubAgentLLM
+	streamTurns []streamAgentTurn
+	streamIndex int
+}
+
+func (s *streamingAgentLLM) StreamChatResponse(ctx context.Context, messages []llm.Message, toolDefs []llm.ToolDefinition, onChunk func(string)) (*llm.Response, error) {
+	s.messages = append(s.messages, append([]llm.Message(nil), messages...))
+	s.toolDefs = append(s.toolDefs, append([]llm.ToolDefinition(nil), toolDefs...))
+	if s.streamIndex >= len(s.streamTurns) {
+		return s.Chat(ctx, messages, toolDefs)
+	}
+	turn := s.streamTurns[s.streamIndex]
+	s.streamIndex++
+	for _, chunk := range turn.chunks {
+		if onChunk != nil {
+			onChunk(chunk)
+		}
+	}
+	if turn.response == nil {
+		return &llm.Response{Content: strings.Join(turn.chunks, "")}, nil
+	}
+	return turn.response, nil
+}
+
 func (s *stubAgentLLM) Chat(ctx context.Context, messages []llm.Message, toolDefs []llm.ToolDefinition) (*llm.Response, error) {
 	s.messages = append(s.messages, append([]llm.Message(nil), messages...))
 	s.toolDefs = append(s.toolDefs, append([]llm.ToolDefinition(nil), toolDefs...))
@@ -314,6 +344,65 @@ func TestSelectToolInfosHandlesChineseCreateFolderRequest(t *testing.T) {
 	got := strings.Join(names, ",")
 	if !strings.Contains(got, "run_command") || !strings.Contains(got, "write_file") || !strings.Contains(got, "list_directory") {
 		t.Fatalf("expected core file and command tools for Chinese create-folder request, got %q", got)
+	}
+}
+
+func TestSelectToolInfosExposesOpenClawCompatibleCoreTools(t *testing.T) {
+	registry := tools.NewRegistry()
+	for _, name := range []string{"read", "write", "edit", "apply_patch", "exec", "process", "web_fetch", "image", "update_plan", "session_status"} {
+		registry.RegisterTool(name, "OpenClaw-compatible core tool", map[string]any{}, nil)
+	}
+
+	ag := New(Config{Tools: registry})
+
+	actionable := ag.selectToolInfos("read, edit, execute a command, fetch a URL, and analyze an image")
+	names := make([]string, 0, len(actionable))
+	for _, tool := range actionable {
+		names = append(names, tool.Name)
+	}
+	got := strings.Join(names, ",")
+	for _, name := range []string{"read", "write", "edit", "apply_patch", "exec", "process", "web_fetch", "image"} {
+		if !strings.Contains(got, name) {
+			t.Fatalf("expected OpenClaw-compatible tool %q to be exposed, got %q", name, got)
+		}
+	}
+
+	planning := ag.selectToolInfos("show session status and update the plan steps")
+	names = names[:0]
+	for _, tool := range planning {
+		names = append(names, tool.Name)
+	}
+	got = strings.Join(names, ",")
+	for _, name := range []string{"update_plan", "session_status"} {
+		if !strings.Contains(got, name) {
+			t.Fatalf("expected OpenClaw-compatible tool %q to be exposed for planning/status, got %q", name, got)
+		}
+	}
+}
+
+func TestSelectToolInfosOnlyExposesRelevantCoreTools(t *testing.T) {
+	registry := tools.NewRegistry()
+	for _, name := range []string{"read", "write", "edit", "apply_patch", "exec", "process", "fetch_url", "web_fetch", "image", "image_analyze"} {
+		registry.RegisterTool(name, "OpenClaw-compatible core tool", map[string]any{}, nil)
+	}
+
+	ag := New(Config{Tools: registry})
+
+	selected := ag.selectToolInfos("fetch this URL: https://example.com/notes")
+	names := make(map[string]bool, len(selected))
+	for _, tool := range selected {
+		names[tool.Name] = true
+	}
+
+	for _, name := range []string{"fetch_url", "web_fetch"} {
+		if !names[name] {
+			t.Fatalf("expected URL fetch tool %q to be exposed, got %#v", name, names)
+		}
+	}
+	for _, name := range []string{"read", "write", "edit", "apply_patch", "exec", "process", "image", "image_analyze"} {
+		if names[name] {
+			t.Fatalf("expected unrelated core tool %q to stay hidden, got %#v", name, names)
+		}
 	}
 }
 
@@ -782,6 +871,175 @@ func TestAgentRunAddsObservationAndVerificationPromptAfterToolResults(t *testing
 	}
 	if !foundFollowup {
 		t.Fatalf("expected observation/verification follow-up prompt, got %#v", llmStub.messages[1])
+	}
+}
+
+func TestAgentRunStreamExecutesToolLoop(t *testing.T) {
+	mem := memory.NewFileMemory(t.TempDir())
+	if err := mem.Init(); err != nil {
+		t.Fatalf("memory init: %v", err)
+	}
+	registry := tools.NewRegistry()
+	called := 0
+	registry.RegisterTool("run_command", "Run a shell command", map[string]any{}, func(ctx context.Context, input map[string]any) (string, error) {
+		called++
+		return "stream build succeeded", nil
+	})
+
+	llmStub := &stubAgentLLM{responses: []*llm.Response{
+		{
+			ToolCalls: []llm.ToolCall{
+				{
+					ID:   "tool-stream-1",
+					Type: "function",
+					Function: llm.FunctionCall{
+						Name:      "run_command",
+						Arguments: `{"command":"go test ./..."}`,
+					},
+				},
+			},
+		},
+		{Content: "stream final response"},
+	}}
+
+	ag := New(Config{
+		Name:        "assistant",
+		Description: "General helper",
+		Personality: "Operate like an execution-focused local app agent.",
+		LLM:         llmStub,
+		Memory:      mem,
+		Skills:      skills.NewSkillsManager(""),
+		Tools:       registry,
+	})
+
+	var streamed strings.Builder
+	err := ag.RunStream(context.Background(), "run tests in stream mode", func(chunk string) {
+		streamed.WriteString(chunk)
+	})
+	if err != nil {
+		t.Fatalf("RunStream: %v", err)
+	}
+	if called != 1 {
+		t.Fatalf("expected stream path to execute one tool call, got %d", called)
+	}
+	if streamed.String() != "stream final response" {
+		t.Fatalf("unexpected streamed response %q", streamed.String())
+	}
+}
+
+func TestAgentRunStreamEmitsModelChunksDuringToolLoop(t *testing.T) {
+	mem := memory.NewFileMemory(t.TempDir())
+	if err := mem.Init(); err != nil {
+		t.Fatalf("memory init: %v", err)
+	}
+	registry := tools.NewRegistry()
+	called := 0
+	registry.RegisterTool("run_command", "Run a shell command", map[string]any{}, func(ctx context.Context, input map[string]any) (string, error) {
+		called++
+		return "stream build succeeded", nil
+	})
+
+	toolTurn := &llm.Response{
+		ToolCalls: []llm.ToolCall{
+			{
+				ID:   "tool-stream-1",
+				Type: "function",
+				Function: llm.FunctionCall{
+					Name:      "run_command",
+					Arguments: `{"command":"go test ./..."}`,
+				},
+			},
+		},
+	}
+	finalTurn := &llm.Response{Content: "stream final response"}
+	llmStub := &streamingAgentLLM{
+		stubAgentLLM: stubAgentLLM{responses: []*llm.Response{
+			toolTurn,
+			finalTurn,
+		}},
+		streamTurns: []streamAgentTurn{
+			{response: toolTurn},
+			{response: finalTurn, chunks: []string{"stream final ", "response"}},
+		},
+	}
+
+	ag := New(Config{
+		Name:        "assistant",
+		Description: "General helper",
+		Personality: "Operate like an execution-focused local app agent.",
+		LLM:         llmStub,
+		Memory:      mem,
+		Skills:      skills.NewSkillsManager(""),
+		Tools:       registry,
+	})
+
+	var chunks []string
+	err := ag.RunStream(context.Background(), "run tests in stream mode", func(chunk string) {
+		chunks = append(chunks, chunk)
+	})
+	if err != nil {
+		t.Fatalf("RunStream: %v", err)
+	}
+	if called != 1 {
+		t.Fatalf("expected stream path to execute one tool call, got %d", called)
+	}
+	if got := strings.Join(chunks, ""); got != "stream final response" {
+		t.Fatalf("unexpected streamed response %q", got)
+	}
+	if len(chunks) != 2 {
+		t.Fatalf("expected streamed model chunks to be forwarded individually, got %#v", chunks)
+	}
+}
+
+func TestAgentRunBlocksRepeatedIdenticalToolLoop(t *testing.T) {
+	mem := memory.NewFileMemory(t.TempDir())
+	if err := mem.Init(); err != nil {
+		t.Fatalf("memory init: %v", err)
+	}
+	registry := tools.NewRegistry()
+	called := 0
+	registry.RegisterTool("run_command", "Run a shell command", map[string]any{}, func(ctx context.Context, input map[string]any) (string, error) {
+		called++
+		return "same result", nil
+	})
+
+	repeatedCall := &llm.Response{
+		ToolCalls: []llm.ToolCall{
+			{
+				ID:   "tool-loop",
+				Type: "function",
+				Function: llm.FunctionCall{
+					Name:      "run_command",
+					Arguments: `{"command":"echo stuck"}`,
+				},
+			},
+		},
+	}
+	llmStub := &stubAgentLLM{responses: []*llm.Response{
+		repeatedCall,
+		repeatedCall,
+		repeatedCall,
+		repeatedCall,
+		{Content: "should not reach final"},
+	}}
+
+	ag := New(Config{
+		Name:        "assistant",
+		Description: "General helper",
+		Personality: "Operate like an execution-focused local app agent.",
+		LLM:         llmStub,
+		Memory:      mem,
+		Skills:      skills.NewSkillsManager(""),
+		Tools:       registry,
+	})
+
+	_, err := ag.Run(context.Background(), "repeat until stuck")
+	if err == nil || !strings.Contains(err.Error(), "tool loop detected") {
+		t.Fatalf("expected tool loop detected error, got %v", err)
+	}
+	activities := ag.GetLastToolActivities()
+	if len(activities) != 3 {
+		t.Fatalf("expected loop detector to block before fourth identical tool attempt, got %d activities and %d handler calls", len(activities), called)
 	}
 }
 
