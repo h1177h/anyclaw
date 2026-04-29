@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/1024XEngineer/anyclaw/pkg/config"
 	cron "github.com/1024XEngineer/anyclaw/pkg/runtime/execution/schedule"
@@ -56,6 +57,17 @@ func TestCLIUsageIncludesOperationalCommands(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in CLI usage, got %q", want, stdout)
 		}
+	}
+}
+
+func TestNewSignalContextStopCancelsContext(t *testing.T) {
+	ctx, stop := newSignalContext()
+	stop()
+
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("expected signal context stop function to cancel context")
 	}
 }
 

@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 )
 
 func main() {
@@ -18,6 +20,15 @@ func main() {
 }
 
 func runAnyClawCLI(args []string) error {
+	ctx, stop := newSignalContext()
+	defer stop()
+	return runAnyClawCLIWithContext(ctx, args)
+}
+
+func runAnyClawCLIWithContext(ctx context.Context, args []string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if len(args) == 0 {
 		printCLIUsage()
 		return nil
@@ -29,7 +40,7 @@ func runAnyClawCLI(args []string) error {
 		printCLIUsage()
 		return nil
 	case "agent":
-		return runAgentCommand(context.Background(), args[1:])
+		return runAgentCommand(ctx, args[1:])
 	case "mcp":
 		return runMCPCommand(args[1:])
 	case "models":
@@ -43,19 +54,19 @@ func runAnyClawCLI(args []string) error {
 	case "channels":
 		return runChannelsCommand(args[1:])
 	case "task":
-		return runTaskCommand(context.Background(), args[1:])
+		return runTaskCommand(ctx, args[1:])
 	case "shell":
 		return runShellCommand(args[1:])
 	case "cron":
-		return runCronCommand(context.Background(), args[1:])
+		return runCronCommand(ctx, args[1:])
 	case "pi":
-		return runPiCommand(context.Background(), args[1:])
+		return runPiCommand(ctx, args[1:])
 	case "store":
 		return runStoreCommand(args[1:])
 	case "claw":
 		return runClawCommand(args[1:])
 	case "pairing":
-		return runPairingCommand(context.Background(), args[1:])
+		return runPairingCommand(ctx, args[1:])
 	case "status":
 		return runStatusCommand(args[1:])
 	case "health":
@@ -71,11 +82,15 @@ func runAnyClawCLI(args []string) error {
 	case "onboard", "setup":
 		return runOnboardCommand(args[1:])
 	case "gateway":
-		return runGatewayCommand(context.Background(), args[1:])
+		return runGatewayCommand(ctx, args[1:])
 	default:
 		printCLIUsage()
 		return fmt.Errorf("unknown command: %s", args[0])
 	}
+}
+
+func newSignalContext() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 }
 
 func normalizeRootCommand(command string) string {
