@@ -131,7 +131,7 @@
   },
   "sandbox": {
     "enabled": false,
-    "execution_mode": "host-reviewed",
+    "execution_mode": "sandbox",
     "backend": "local",
     "base_dir": ".anyclaw/sandboxes",
     "docker_image": "alpine:3.20",
@@ -164,7 +164,6 @@
       "icacls",
       "git reset --hard"
     ],
-    "protected_paths": [],
     "command_timeout_seconds": 30,
     "risk_acknowledged": false,
     "pairing_enabled": false,
