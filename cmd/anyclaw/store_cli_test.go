@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/1024XEngineer/anyclaw/pkg/config"
 	"github.com/1024XEngineer/anyclaw/pkg/extensions/plugin"
 )
 
@@ -122,6 +123,55 @@ func TestRunStoreInstallAndUninstallBuiltinSkill(t *testing.T) {
 	}
 }
 
+func TestRunStoreInstallUsesConfiguredPaths(t *testing.T) {
+	withStoreCLITempDir(t)
+
+	configDir := filepath.Join(t.TempDir(), "configs")
+	cfg := config.DefaultConfig()
+	cfg.Agent.WorkDir = filepath.Join("runtime", ".anyclaw")
+	cfg.Skills.Dir = filepath.Join("custom", "skills")
+	configPath := filepath.Join(configDir, "anyclaw.json")
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("Save config: %v", err)
+	}
+
+	stdout, _, err := captureCLIOutput(t, func() error {
+		return runAnyClawCLI([]string{"store", "--config", configPath, "install", "go-expert"})
+	})
+	if err != nil {
+		t.Fatalf("runAnyClawCLI store install: %v", err)
+	}
+	if !strings.Contains(stdout, "Installed:") {
+		t.Fatalf("unexpected install output: %q", stdout)
+	}
+
+	configuredSkill := filepath.Join(configDir, "custom", "skills", "go-expert", "skill.json")
+	if _, err := os.Stat(configuredSkill); err != nil {
+		t.Fatalf("expected installed skill under configured skills dir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join("skills", "go-expert")); !os.IsNotExist(err) {
+		t.Fatalf("expected default cwd skills dir to remain unused, got %v", err)
+	}
+
+	configuredReceipt := filepath.Join(configDir, "runtime", ".anyclaw", "store", "receipts", "go-expert.json")
+	if _, err := os.Stat(configuredReceipt); err != nil {
+		t.Fatalf("expected install receipt under configured work dir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(".anyclaw", "store", "receipts", "go-expert.json")); !os.IsNotExist(err) {
+		t.Fatalf("expected default cwd receipt dir to remain unused, got %v", err)
+	}
+
+	stdout, _, err = captureCLIOutput(t, func() error {
+		return runAnyClawCLI([]string{"store", "list", "--config", configPath})
+	})
+	if err != nil {
+		t.Fatalf("runAnyClawCLI store list: %v", err)
+	}
+	if !strings.Contains(stdout, "[installed]") {
+		t.Fatalf("expected list to read installed marker from configured work dir, got %q", stdout)
+	}
+}
+
 func TestRunStoreSourcesAddAndList(t *testing.T) {
 	withStoreCLITempDir(t)
 
@@ -143,6 +193,36 @@ func TestRunStoreSourcesAddAndList(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "local: https://example.test/plugins.json (http)") {
 		t.Fatalf("unexpected sources output: %q", stdout)
+	}
+}
+
+func TestRunStoreSourcesUsesConfiguredWorkDir(t *testing.T) {
+	withStoreCLITempDir(t)
+
+	configDir := filepath.Join(t.TempDir(), "configs")
+	cfg := config.DefaultConfig()
+	cfg.Agent.WorkDir = filepath.Join("runtime", ".anyclaw")
+	configPath := filepath.Join(configDir, "anyclaw.json")
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("Save config: %v", err)
+	}
+
+	stdout, _, err := captureCLIOutput(t, func() error {
+		return runAnyClawCLI([]string{"store", "sources", "--config", configPath, "add", "local", "https://example.test/plugins.json"})
+	})
+	if err != nil {
+		t.Fatalf("runAnyClawCLI store sources add: %v", err)
+	}
+	if !strings.Contains(stdout, "Added source: local -> https://example.test/plugins.json") {
+		t.Fatalf("unexpected sources add output: %q", stdout)
+	}
+
+	configuredSources := filepath.Join(configDir, "runtime", ".anyclaw", "sources.json")
+	if _, err := os.Stat(configuredSources); err != nil {
+		t.Fatalf("expected sources under configured work dir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(".anyclaw", "sources.json")); !os.IsNotExist(err) {
+		t.Fatalf("expected default cwd sources file to remain unused, got %v", err)
 	}
 }
 

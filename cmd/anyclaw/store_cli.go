@@ -9,11 +9,21 @@ import (
 	"time"
 
 	agentstore "github.com/1024XEngineer/anyclaw/pkg/capability/catalogs"
+	"github.com/1024XEngineer/anyclaw/pkg/config"
 	"github.com/1024XEngineer/anyclaw/pkg/extensions/plugin"
 	"github.com/1024XEngineer/anyclaw/pkg/input/cli/ui"
 )
 
+type storeCommandOptions struct {
+	configPath string
+	workDir    string
+}
+
 func runStoreCommand(args []string) error {
+	opts, args, err := parseStoreCommandOptions(args)
+	if err != nil {
+		return err
+	}
 	if len(args) == 0 {
 		printStoreUsage()
 		return nil
@@ -21,25 +31,25 @@ func runStoreCommand(args []string) error {
 
 	switch strings.ToLower(strings.TrimSpace(args[0])) {
 	case "list":
-		return runStoreList(args[1:])
+		return runStoreList(args[1:], opts)
 	case "search":
-		return runStoreSearch(args[1:])
+		return runStoreSearch(args[1:], opts)
 	case "info":
-		return runStoreInfo(args[1:])
+		return runStoreInfo(args[1:], opts)
 	case "install":
-		return runStoreInstall(args[1:])
+		return runStoreInstall(args[1:], opts)
 	case "uninstall":
-		return runStoreUninstall(args[1:])
+		return runStoreUninstall(args[1:], opts)
 	case "sign":
-		return runStoreSign(args[1:])
+		return runStoreSign(args[1:], opts)
 	case "verify":
-		return runStoreVerify(args[1:])
+		return runStoreVerify(args[1:], opts)
 	case "trust":
-		return runStoreTrust(args[1:])
+		return runStoreTrust(args[1:], opts)
 	case "sources":
-		return runStoreSources(args[1:])
+		return runStoreSources(args[1:], opts)
 	case "update":
-		return runStoreUpdate(args[1:])
+		return runStoreUpdate(args[1:], opts)
 	default:
 		printStoreUsage()
 		return fmt.Errorf("unknown store command: %s", args[0])
@@ -60,15 +70,71 @@ Usage:
   anyclaw store trust <key-id> <public-key-file> [name]
   anyclaw store sources [add <name> <url>]
   anyclaw store update [plugin-id]
+
+Options:
+  --config <path>  Path to anyclaw.json
 `)
 }
 
-func newStoreManager() (agentstore.StoreManager, error) {
-	return agentstore.NewStoreManager(".anyclaw", "anyclaw.json")
+func parseStoreCommandOptions(args []string) (storeCommandOptions, []string, error) {
+	opts := storeCommandOptions{configPath: "anyclaw.json"}
+	remaining := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--config":
+			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
+				return opts, nil, fmt.Errorf("--config requires a path")
+			}
+			opts.configPath = args[i+1]
+			i++
+		case strings.HasPrefix(arg, "--config="):
+			value := strings.TrimSpace(strings.TrimPrefix(arg, "--config="))
+			if value == "" {
+				return opts, nil, fmt.Errorf("--config requires a path")
+			}
+			opts.configPath = value
+		default:
+			remaining = append(remaining, arg)
+		}
+	}
+	return opts, remaining, nil
 }
 
-func runStoreList(args []string) error {
-	sm, err := newStoreManager()
+func newStoreManager(opts storeCommandOptions) (agentstore.StoreManager, error) {
+	resolved, err := resolveStoreCommandOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	return agentstore.NewStoreManager(resolved.workDir, resolved.configPath)
+}
+
+func resolveStoreCommandOptions(opts storeCommandOptions) (storeCommandOptions, error) {
+	configPath := strings.TrimSpace(opts.configPath)
+	if configPath == "" {
+		configPath = "anyclaw.json"
+	}
+	resolvedConfigPath := config.ResolveConfigPath(configPath)
+
+	cfg, err := config.Load(resolvedConfigPath)
+	if err != nil {
+		return storeCommandOptions{}, err
+	}
+	workDir := strings.TrimSpace(opts.workDir)
+	if workDir == "" {
+		workDir = cfg.Agent.WorkDir
+	}
+	if strings.TrimSpace(workDir) == "" {
+		workDir = ".anyclaw"
+	}
+	return storeCommandOptions{
+		configPath: resolvedConfigPath,
+		workDir:    config.ResolvePath(resolvedConfigPath, workDir),
+	}, nil
+}
+
+func runStoreList(args []string, opts storeCommandOptions) error {
+	sm, err := newStoreManager(opts)
 	if err != nil {
 		return err
 	}
@@ -104,13 +170,13 @@ func runStoreList(args []string) error {
 	return nil
 }
 
-func runStoreSearch(args []string) error {
+func runStoreSearch(args []string, opts storeCommandOptions) error {
 	keyword := strings.TrimSpace(strings.Join(args, " "))
 	if keyword == "" {
 		return fmt.Errorf("usage: anyclaw store search <keyword>")
 	}
 
-	sm, err := newStoreManager()
+	sm, err := newStoreManager(opts)
 	if err != nil {
 		return err
 	}
@@ -140,12 +206,12 @@ func runStoreSearch(args []string) error {
 	return nil
 }
 
-func runStoreInfo(args []string) error {
+func runStoreInfo(args []string, opts storeCommandOptions) error {
 	if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
 		return fmt.Errorf("usage: anyclaw store info <id>")
 	}
 
-	sm, err := newStoreManager()
+	sm, err := newStoreManager(opts)
 	if err != nil {
 		return err
 	}
@@ -188,12 +254,12 @@ func runStoreInfo(args []string) error {
 	return nil
 }
 
-func runStoreInstall(args []string) error {
+func runStoreInstall(args []string, opts storeCommandOptions) error {
 	if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
 		return fmt.Errorf("usage: anyclaw store install <id>")
 	}
 
-	sm, err := newStoreManager()
+	sm, err := newStoreManager(opts)
 	if err != nil {
 		return err
 	}
@@ -217,12 +283,12 @@ func runStoreInstall(args []string) error {
 	return nil
 }
 
-func runStoreUninstall(args []string) error {
+func runStoreUninstall(args []string, opts storeCommandOptions) error {
 	if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
 		return fmt.Errorf("usage: anyclaw store uninstall <id>")
 	}
 
-	sm, err := newStoreManager()
+	sm, err := newStoreManager(opts)
 	if err != nil {
 		return err
 	}
@@ -234,7 +300,7 @@ func runStoreUninstall(args []string) error {
 	return nil
 }
 
-func runStoreSign(args []string) error {
+func runStoreSign(args []string, opts storeCommandOptions) error {
 	if len(args) < 2 {
 		return fmt.Errorf("usage: anyclaw store sign <plugin-dir> <key-file>")
 	}
@@ -262,7 +328,7 @@ func runStoreSign(args []string) error {
 	return nil
 }
 
-func runStoreVerify(args []string) error {
+func runStoreVerify(args []string, opts storeCommandOptions) error {
 	if len(args) < 2 {
 		return fmt.Errorf("usage: anyclaw store verify <plugin-dir> <public-key-file>")
 	}
@@ -293,7 +359,7 @@ func runStoreVerify(args []string) error {
 	return nil
 }
 
-func runStoreTrust(args []string) error {
+func runStoreTrust(args []string, opts storeCommandOptions) error {
 	if len(args) < 2 {
 		return fmt.Errorf("usage: anyclaw store trust <key-id> <public-key-file> [name]")
 	}
@@ -306,8 +372,12 @@ func runStoreTrust(args []string) error {
 		return fmt.Errorf("failed to read public key file: %w", err)
 	}
 
+	resolved, err := resolveStoreCommandOptions(opts)
+	if err != nil {
+		return err
+	}
 	trustStore := plugin.NewTrustStore()
-	trustPath := filepath.Join(".anyclaw", "trust.json")
+	trustPath := filepath.Join(resolved.workDir, "trust.json")
 	if err := trustStore.Load(trustPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to load trust store: %w", err)
 	}
@@ -334,8 +404,12 @@ func runStoreTrust(args []string) error {
 	return nil
 }
 
-func runStoreSources(args []string) error {
-	sourcesPath := filepath.Join(".anyclaw", "sources.json")
+func runStoreSources(args []string, opts storeCommandOptions) error {
+	resolved, err := resolveStoreCommandOptions(opts)
+	if err != nil {
+		return err
+	}
+	sourcesPath := filepath.Join(resolved.workDir, "sources.json")
 
 	if len(args) > 0 && args[0] == "add" {
 		if len(args) < 3 {
@@ -403,7 +477,7 @@ func saveStoreSources(path string, sources []*plugin.PluginSource) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-func runStoreUpdate(args []string) error {
+func runStoreUpdate(args []string, opts storeCommandOptions) error {
 	if len(args) > 0 && strings.TrimSpace(args[0]) != "" {
 		printInfo("Update for %s requires agentstore v2", args[0])
 		return nil
