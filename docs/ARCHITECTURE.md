@@ -31,7 +31,7 @@ AnyClaw 现在的主流程可以概括成下面这条链路：
   -> 审批 / 事件 / 审计 / 状态落盘
 ```
 
-其中最关键的装配顺序已经写在 `pkg/runtime.Bootstrap` 里，顺序基本是：
+其中最关键的装配顺序已经写在 `runtime.Bootstrap` 里，顺序基本是：
 
 1. `config`
 2. `security / secrets / audit`
@@ -52,15 +52,15 @@ AnyClaw 现在的主流程可以概括成下面这条链路：
 
 | 模块 | 主要职责 | 当前对应包/目录 |
 | --- | --- | --- |
-| 1. 客户端与展示层 | Web 控制台、桌面壳、终端 UI 展示 | `ui/`, `cmd/anyclaw-desktop/`, `cmd/anyclaw-desktop/frontend/`, `pkg/ui` |
-| 2. 运行时装配层 | 配置加载、启动编排、工作区初始化、环境自检 | `pkg/runtime`, `pkg/config`, `pkg/setup`, `pkg/workspace`, `pkg/bootstrap` |
+| 1. 客户端与展示层 | Web 控制台、桌面壳、终端 CLI 展示 | `ui/`, `cmd/anyclaw/`, `cmd/anyclaw-desktop/`, `cmd/anyclaw-desktop/frontend/` |
+| 2. 运行时装配层 | 配置加载、启动编排、工作区初始化、环境自检 | `pkg/runtime`, `pkg/runtime/bootstrap`, `pkg/config`, `pkg/workspace`, `pkg/input/cli/setup` |
 | 3. Agent 内核 | 对话执行、Prompt、上下文管理、记忆、模型调用 | `pkg/capability/agents`, `pkg/runtime/context`, `pkg/state/memory`, `pkg/embedding`, `pkg/capability/models` |
 | 4. 工具与执行平台 | 文件/Shell/浏览器/桌面操作、CLI Hub、沙箱、多模态工具 | `pkg/capability/tools`, `pkg/clihub`, `pkg/cdp`, `pkg/vision`, `pkg/media`, `pkg/canvas`, `pkg/qmd`, `pkg/isolation`, `pkg/runtime/execution/verification` |
 | 5. 编排与任务流 | 多 Agent 编排、任务执行、工作流、计划、定时任务 | `pkg/runtime/orchestrator`, `pkg/runtime/taskrunner`, `pkg/capability/workflows`, `pkg/runtime/execution/schedule`, `pkg/route`, `pkg/runtime/pool.go` |
-| 6. 接入网关与会话层 | HTTP/WS API、OpenAI 兼容 API、会话状态、渠道接入、事件流 | `pkg/gateway`, `pkg/chat`, `pkg/reply`, `pkg/session`, `pkg/gateway/session`, `pkg/channel`, `pkg/channels`, `pkg/remote`, `pkg/discovery` |
-| 7. 扩展生态层 | Skills、Plugins、MCP、Agent Store、市场能力 | `pkg/capability/skills`, `pkg/extensions/plugin`, `pkg/extensions/mcp`, `pkg/capability/catalogs`, `skills/`, `plugins/`, `extensions/` |
-| 8. 应用自动化与设备协同 | App 绑定、桌面协议、UI 学习、节点协作 | `pkg/apps`, `pkg/nodes`, `pkg/node`, `pkg/pi`, `pkg/sdk` |
-| 9. 平台基础设施与治理 | 安全、密钥、审计、可观测、存储、索引、企业能力 | `pkg/security`, `pkg/secrets`, `pkg/audit`, `pkg/observability`, `pkg/sqlite`, `pkg/vec`, `pkg/index`, `pkg/api`, `pkg/event`, `pkg/enterprise`, `pkg/i18n` |
+| 6. 接入网关与会话层 | HTTP/WS API、OpenAI 兼容 API、会话状态、渠道接入、事件流 | `pkg/gateway`, `pkg/gateway/transport`, `pkg/gateway/ingress`, `pkg/gateway/intake`, `pkg/gateway/events`, `pkg/runtime/channelbridge`, `pkg/runtime/sessionbridge`, `pkg/input/channels`, `pkg/gateway/resources/discovery` |
+| 7. 扩展生态层 | Skills、Plugins、MCP、Agent Store、市场能力 | `pkg/capability/skills`, `pkg/extensions/plugin`, `pkg/extensions/mcp`, `pkg/extensions/adapters`, `pkg/capability/catalogs`, `skills/`, `extensions/` |
+| 8. 应用自动化与设备协同 | 桌面协议、UI 学习、节点协作、客户端配对 | `pkg/runtime/execution/desktop`, `pkg/gateway/resources/nodes`, `pkg/gateway/resources/discovery`, `pkg/gateway/transport/client`, `pkg/input/channels` |
+| 9. 平台基础设施与治理 | 安全、密钥、审计、可观测、存储、索引、基础 API | `pkg/gateway/auth/security`, `pkg/state/policy/secrets`, `pkg/state/audit`, `pkg/state/observability`, `pkg/sqlite`, `pkg/vec`, `pkg/index`, `pkg/api`, `pkg/gateway/events` |
 
 ## 3. 每个模块应该如何理解
 
@@ -70,7 +70,7 @@ AnyClaw 现在的主流程可以概括成下面这条链路：
 
 - `ui/` 是当前主 Web 控制台，页面已经按 Chat / Channels / Market / Studio 切分
 - `cmd/anyclaw-desktop/` 是桌面壳，本质上是启动并承载 Gateway Dashboard
-- `pkg/ui` 是终端样式与交互辅助
+- `cmd/anyclaw/` 承载终端 CLI 入口与本地命令展示
 
 建议边界：
 
@@ -93,7 +93,7 @@ AnyClaw 现在的主流程可以概括成下面这条链路：
 建议边界：
 
 - `runtime` 只负责装配，不负责具体业务策略
-- `config` / `setup` / `workspace` / `bootstrap` 都应围绕启动与环境检查服务
+- `pkg/config` / `pkg/input/cli/setup` / `pkg/workspace` / `pkg/runtime/bootstrap` 都应围绕启动与环境检查服务
 - 不把 HTTP、UI、渠道逻辑继续下沉到这里
 
 ### 3.3 Agent 内核
@@ -103,10 +103,9 @@ AnyClaw 现在的主流程可以概括成下面这条链路：
 核心职责：
 
 - `pkg/capability/agents`: 单 Agent 执行、工具调用循环、上下文预算、偏好学习
-- `pkg/prompt`: prompt 组织与消息模型
-- `pkg/memory`: 本地记忆
-- `pkg/context-engine` / `pkg/context`: 上下文存取与检索
-- `pkg/llm` / `pkg/providers`: 模型客户端与流式调用
+- `pkg/runtime/context`: 上下文预算、窗口与运行时上下文辅助
+- `pkg/state/memory`: 本地记忆
+- `pkg/capability/models`: 模型客户端、failover、多模态与流式调用
 - `pkg/embedding`: 嵌入模型能力
 
 建议边界：
@@ -122,7 +121,7 @@ AnyClaw 现在的主流程可以概括成下面这条链路：
 职责包括：
 
 - `pkg/capability/tools`: 内置工具注册表，包含文件、命令、浏览器、桌面、审批、策略等
-- `pkg/clihub` / `pkg/cliadapter`: CLI-Anything 与本地 CLI 能力接入
+- `pkg/clihub` / `pkg/extensions/adapters/cli`: CLI-Anything 与本地 CLI 能力接入
 - `pkg/cdp`: 浏览器自动化
 - `pkg/vision` / `pkg/media`: 图像、视频、音频处理与理解
 - `pkg/canvas`: UI/画布输出
@@ -141,11 +140,11 @@ AnyClaw 现在的主流程可以概括成下面这条链路：
 
 职责包括：
 
-- `pkg/orchestrator`: 多 Agent 分解与协作
-- `pkg/task`: 任务模型
-- `pkg/workflow`: 图工作流、触发器、执行上下文
-- `pkg/cron`: 定时任务
-- `pkg/routing`: 请求路由和低 token 路径优化
+- `pkg/runtime/orchestrator`: 多 Agent 分解与协作
+- `pkg/runtime/taskrunner` / `pkg/state/task`: 任务执行与任务状态
+- `pkg/capability/workflows`: 图工作流、触发器、执行上下文
+- `pkg/runtime/execution/schedule`: 定时任务
+- `pkg/route`: 请求路由和低 token 路径优化
 - `pkg/runtime/taskrunner` / `pkg/runtime/pool.go`: 当前任务执行与 runtime pool 也承担了这层职责
 
 建议边界：
@@ -161,10 +160,11 @@ AnyClaw 现在的主流程可以概括成下面这条链路：
 职责包括：
 
 - `pkg/gateway`: HTTP/WS API、状态聚合、审批接口、市场接口、OpenAI 兼容接口
-- `pkg/chat` / `pkg/reply`: 聊天与回复分发
-- `pkg/session` / `pkg/gateway/session`: 会话抽象
-- `pkg/channel` / `pkg/channels`: 渠道适配、Mention Gate、Pairing、Presence、Policy
-- `pkg/remote` / `pkg/discovery`: 远程接入与发现
+- `pkg/gateway/transport`: WebSocket、回复分发、控制台 UI 与调度 UI 传输层
+- `pkg/gateway/ingress` / `pkg/gateway/intake`: 渠道入口、webhook、entry policy 与输入归一化
+- `pkg/runtime/channelbridge` / `pkg/input/channels`: 渠道运行时桥接与渠道契约
+- `pkg/runtime/sessionbridge` / `pkg/state`: 会话桥接与会话持久化
+- `pkg/gateway/resources/discovery`: 远程资源发现
 
 建议边界：
 
@@ -180,9 +180,9 @@ AnyClaw 现在的主流程可以概括成下面这条链路：
 
 - `pkg/capability/skills`: 技能定义、加载、工具注册
 - `pkg/extensions/plugin`: 插件 manifest、加载、签名、市场、MCP bridge、App 插件
-- `pkg/mcp`: MCP client/server/registry
+- `pkg/extensions/mcp`: MCP client/server/registry
 - `pkg/capability/catalogs`: Agent 包安装与市场
-- `pkg/extension`: 兼容 `extensions/` 目录的扩展体系
+- `pkg/extensions/adapters`: 兼容 `extensions/` 目录与内置 adapter 的扩展体系
 
 建议边界：
 
@@ -196,10 +196,10 @@ AnyClaw 现在的主流程可以概括成下面这条链路：
 
 职责包括：
 
-- `pkg/apps`: App binding、pairing、UI learning、desktop protocol、window monitor
-- `pkg/nodes` / `pkg/node`: 节点与设备协同
-- `pkg/pi`: 设备端 RPC/配对
-- `pkg/sdk`: 对外 SDK 类型
+- `pkg/runtime/execution/desktop`: 桌面执行与验证链路
+- `pkg/gateway/resources/nodes`: 节点资源与发现模型
+- `pkg/gateway/transport/client`: 远程客户端与配对传输
+- `pkg/input/channels`: 外部渠道契约与适配边界
 
 建议边界：
 
@@ -212,13 +212,11 @@ AnyClaw 现在的主流程可以概括成下面这条链路：
 
 职责包括：
 
-- `pkg/security`, `pkg/secrets`, `pkg/audit`: 安全、密钥、审计
-- `pkg/observability`: health / metrics / tracing / pprof
+- `pkg/gateway/auth/security`, `pkg/state/policy/secrets`, `pkg/state/audit`: 安全、密钥、审计
+- `pkg/state/observability`: health / metrics / tracing / pprof
 - `pkg/sqlite`, `pkg/vec`, `pkg/index`: 存储、向量、索引
 - `pkg/api`: 向量检索 API
-- `pkg/event`: 事件总线
-- `pkg/enterprise`: RBAC / SSO / compliance / encryption
-- `pkg/i18n`: 国际化基础
+- `pkg/gateway/events`: 事件总线
 
 建议边界：
 
@@ -252,18 +250,19 @@ AnyClaw 现在的主流程可以概括成下面这条链路：
 
 下面这些地方说明当前代码已经出现“功能上属于一个模块，但代码上分散或重名”的情况，后续重构建议优先处理。
 
-### 5.1 `pkg/channel` 与 `pkg/channels`
+### 5.1 渠道契约、运行时桥接与 Gateway glue
 
 现状：
 
-- `pkg/channel` 只是对 `pkg/channels` 的兼容 re-export
-- 实际实现都在 `pkg/channels`
+- `pkg/input/channels` 定义渠道契约和输入侧适配边界
+- `pkg/runtime/channelbridge` 负责运行时桥接
+- `pkg/gateway/ingress` 与 `pkg/gateway/gateway_channel_*.go` 承载 HTTP/webhook/control-plane glue
 
 建议：
 
-- 保留一个正式入口
-- 逐步清理旧 import path
-- 对外只保留 `channel` 或 `channels` 其中一个
+- 保持“契约、运行时、协议入口”三层边界清晰
+- 后续新增渠道优先接入 `pkg/input/channels` 和 `pkg/runtime/channelbridge`
+- Gateway 只保留协议适配和状态聚合，不继续沉淀渠道业务规则
 
 ### 5.2 Agent 执行内核与管理边界
 
@@ -277,37 +276,38 @@ AnyClaw 现在的主流程可以概括成下面这条链路：
 - 避免再引入新的平行 Agent 管理包
 - 能迁移就迁移到 `pkg/capability/agents` / `pkg/runtime/orchestrator`
 
-### 5.3 `pkg/context` 与 `pkg/context-engine`
+### 5.3 上下文、记忆与检索边界
 
 现状：
 
-- 两者都在处理“上下文”
-- 一个偏检索引擎接口，一个偏短生命周期上下文容器
+- `pkg/runtime/context` 处理短生命周期运行时上下文、窗口和预算
+- `pkg/state/memory` 处理长期记忆
+- `pkg/embedding` / `pkg/vec` / `pkg/index` 处理检索和索引能力
 
 建议：
 
-- 明确拆成 `contextstore` 与 `retrieval` 两个概念，或者统一到同一子域下
-- 避免名称上继续并列造成误解
+- 明确短期上下文、长期记忆、向量检索三个概念边界
+- 避免后续再引入平行的 context 包名造成误解
 
-### 5.4 `pkg/llm` 与 `pkg/providers`
+### 5.4 模型访问层
 
 现状：
 
-- 两个目录都在承载模型调用能力
-- `pkg/providers` 甚至仍使用 `package llm`，理解成本很高
+- `pkg/capability/models` 承载模型客户端、failover、stream、多模态能力
+- `pkg/api/openai` 承载 OpenAI 兼容 API 适配
 
 建议：
 
-- 合并为一个模型访问层
-- 统一 provider adapter、wrapper、failover、multimodal 能力
+- 继续把 provider adapter、wrapper、failover、multimodal 能力收口到 `pkg/capability/models`
 
 ### 5.5 Session 相关实现分散
 
 现状：
 
-- `pkg/session`
-- `pkg/gateway/session`
-- `pkg/gateway/state.go` 内的 session/store 逻辑
+- `pkg/runtime/sessionbridge`
+- `pkg/gateway/transport/sessions.go`
+- `pkg/gateway/gateway_session_*.go`
+- `pkg/state/conversation_sessions.go`
 
 建议：
 
@@ -319,7 +319,8 @@ AnyClaw 现在的主流程可以概括成下面这条链路：
 现状：
 
 - `pkg/extensions/plugin`
-- `pkg/extension`
+- `pkg/extensions/mcp`
+- `pkg/extensions/adapters`
 - `pkg/capability/catalogs`
 
 建议：
@@ -333,22 +334,22 @@ AnyClaw 现在的主流程可以概括成下面这条链路：
 
 - `pkg/gateway`
 - `pkg/api`
-- `pkg/web`
+- `pkg/gateway/transport/controlui`
 
 建议：
 
 - `gateway` 作为产品主 API
 - `api` 保留为专用向量检索服务或独立基础能力
-- `web` 若无明确演进方向，可并入工具层或标记为实验能力
+- `controlui` 保持为 Gateway 的 UI 传输子域，不再额外引入平行 Web 包
 
 ## 6. 如果要真正动代码，推荐的拆分优先级
 
 ### 第一阶段：先收口命名和边界
 
-- 合并 `channel/channels`
-- 标记 `agents` 为 legacy
-- 理清 `context` / `context-engine`
-- 合并 `llm/providers`
+- 收口 `input/channels`、`runtime/channelbridge`、Gateway channel glue 的边界
+- 明确 `pkg/capability/agents` 是 Agent 执行内核
+- 理清 `runtime/context`、`state/memory`、`embedding` / `vec` / `index`
+- 把模型访问继续统一到 `pkg/capability/models`
 
 ### 第二阶段：把领域从 Gateway 中抽出来
 
