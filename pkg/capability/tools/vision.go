@@ -1119,7 +1119,7 @@ func ImageAnalyzeTool(ctx context.Context, input map[string]any, opts BuiltinOpt
 			return "", err
 		}
 	} else {
-		imageData, mimeType, err = fetchImageForAnalyze(ctx, strings.TrimSpace(url))
+		imageData, mimeType, err = fetchImageForAnalyze(ctx, strings.TrimSpace(url), opts)
 		if err != nil {
 			return "", err
 		}
@@ -1184,7 +1184,12 @@ func readLocalImageForAnalyze(path string, opts BuiltinOptions) ([]byte, string,
 	return data, mimeType, resolved, nil
 }
 
-func fetchImageForAnalyze(ctx context.Context, imageURL string) ([]byte, string, error) {
+func fetchImageForAnalyze(ctx context.Context, imageURL string, opts BuiltinOptions) ([]byte, string, error) {
+	if opts.Policy != nil {
+		if err := opts.Policy.CheckEgressURL(imageURL); err != nil {
+			return nil, "", err
+		}
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("fetch image: %w", err)

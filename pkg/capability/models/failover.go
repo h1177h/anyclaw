@@ -113,9 +113,21 @@ func (fc *FailoverClient) StreamChat(ctx context.Context, messages []Message, to
 
 	// Try fallbacks
 	for _, fallback := range fc.fallbacks {
-		err = fallback.StreamChat(ctx, messages, tools, onChunk)
+		fallbackEmitted := false
+		err = fallback.StreamChat(ctx, messages, tools, func(chunk string) {
+			if chunk == "" {
+				return
+			}
+			fallbackEmitted = true
+			if onChunk != nil {
+				onChunk(chunk)
+			}
+		})
 		if err == nil {
 			return nil
+		}
+		if fallbackEmitted {
+			return fmt.Errorf("stream interrupted after partial output from %s: %w", fallback.Name(), err)
 		}
 	}
 
@@ -152,9 +164,21 @@ func (fc *FailoverClient) StreamChatResponse(ctx context.Context, messages []Mes
 	}
 
 	for _, fallback := range fc.fallbacks {
-		resp, err = streamClientResponse(ctx, fallback, messages, tools, onChunk)
+		fallbackEmitted := false
+		resp, err = streamClientResponse(ctx, fallback, messages, tools, func(chunk string) {
+			if chunk == "" {
+				return
+			}
+			fallbackEmitted = true
+			if onChunk != nil {
+				onChunk(chunk)
+			}
+		})
 		if err == nil {
 			return resp, nil
+		}
+		if fallbackEmitted {
+			return nil, fmt.Errorf("stream interrupted after partial output from %s: %w", fallback.Name(), err)
 		}
 	}
 

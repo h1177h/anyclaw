@@ -72,6 +72,25 @@ func TestImageAnalyzeRejectsNonImageLocalFile(t *testing.T) {
 	}
 }
 
+func TestImageAnalyzeURLHonorsEgressPolicy(t *testing.T) {
+	client := &imageAnalyzeLLM{}
+
+	_, err := ImageAnalyzeTool(context.Background(), map[string]any{
+		"url": "https://blocked.example.invalid/private.png",
+	}, BuiltinOptions{
+		Policy: NewPolicyEngine(PolicyOptions{
+			AllowedEgressDomains: []string{"allowed.example"},
+		}),
+		LLMClient: client,
+	})
+	if err == nil || !strings.Contains(err.Error(), "egress denied") {
+		t.Fatalf("expected egress policy denial, got %v", err)
+	}
+	if client.calls != 0 {
+		t.Fatalf("expected blocked URL to be rejected before LLM call, got %d calls", client.calls)
+	}
+}
+
 func TestLocateTemplateFindsInsertedTemplate(t *testing.T) {
 	source := image.NewNRGBA(image.Rect(0, 0, 96, 72))
 	fillRect(source, source.Bounds(), color.NRGBA{R: 24, G: 28, B: 34, A: 255})

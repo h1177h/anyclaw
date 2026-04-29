@@ -249,7 +249,9 @@ type applyPatchUpdateChunk struct {
 	oldLines    []string
 	newLines    []string
 	oldStart    int
+	oldCount    int
 	hasOldStart bool
+	hasOldCount bool
 }
 
 func applyPatchCompatTool(ctx context.Context, input map[string]any, opts BuiltinOptions) (string, error) {
@@ -346,12 +348,14 @@ func applyPatchText(ctx context.Context, patch string, opts BuiltinOptions) (app
 				switch {
 				case trimmed == "@@" || strings.HasPrefix(trimmed, "@@ "):
 					flushChunk()
-					oldStart, hasOldStart, err := parsePatchHunkOldStart(trimmed)
+					oldStart, oldCount, hasOldRange, err := parsePatchHunkOldRange(trimmed)
 					if err != nil {
 						return applyPatchCompatSummary{}, fmt.Errorf("invalid patch hunk for %s: %w", path, err)
 					}
 					current.oldStart = oldStart
-					current.hasOldStart = hasOldStart
+					current.oldCount = oldCount
+					current.hasOldStart = hasOldRange
+					current.hasOldCount = hasOldRange
 				case trimmed == "*** End of File":
 				case strings.HasPrefix(lines[i], " "):
 					text := strings.TrimPrefix(lines[i], " ")
@@ -425,7 +429,7 @@ func replacePatchBlock(content string, chunk applyPatchUpdateChunk, lineOffset i
 	oldLines := chunk.oldLines
 	newLines := chunk.newLines
 	if chunk.hasOldStart {
-		return replacePatchBlockAtLine(content, oldLines, newLines, chunk.oldStart+lineOffset)
+		return replacePatchBlockAtLine(content, oldLines, newLines, chunk.oldStart+lineOffset, chunk.oldCount, chunk.hasOldCount)
 	}
 	if len(oldLines) == 0 {
 		return content + patchLinesToText(newLines, true), true
@@ -441,13 +445,25 @@ func replacePatchBlock(content string, chunk applyPatchUpdateChunk, lineOffset i
 	return content, false
 }
 
-func replacePatchBlockAtLine(content string, oldLines []string, newLines []string, lineNumber int) (string, bool) {
+func replacePatchBlockAtLine(content string, oldLines []string, newLines []string, lineNumber int, oldCount int, hasOldCount bool) (string, bool) {
+	if len(oldLines) == 0 {
+		insertLine := lineNumber
+		if hasOldCount && oldCount == 0 {
+			if insertLine <= 0 {
+				insertLine = 1
+			} else {
+				insertLine++
+			}
+		}
+		offset, ok := byteOffsetForLineOrEOF(content, insertLine)
+		if !ok {
+			return content, false
+		}
+		return content[:offset] + patchLinesToText(newLines, true) + content[offset:], true
+	}
 	offset, ok := byteOffsetForLine(content, lineNumber)
 	if !ok {
 		return content, false
-	}
-	if len(oldLines) == 0 {
-		return content[:offset] + patchLinesToText(newLines, true) + content[offset:], true
 	}
 	oldWithNewline := patchLinesToText(oldLines, true)
 	if strings.HasPrefix(content[offset:], oldWithNewline) {
@@ -461,12 +477,17 @@ func replacePatchBlockAtLine(content string, oldLines []string, newLines []strin
 }
 
 func parsePatchHunkOldStart(header string) (int, bool, error) {
+	start, _, hasOldRange, err := parsePatchHunkOldRange(header)
+	return start, hasOldRange, err
+}
+
+func parsePatchHunkOldRange(header string) (int, int, bool, error) {
 	header = strings.TrimSpace(header)
 	if header == "@@" {
-		return 0, false, nil
+		return 0, 0, false, nil
 	}
 	if !strings.HasPrefix(header, "@@") {
-		return 0, false, nil
+		return 0, 0, false, nil
 	}
 	body := strings.TrimSpace(strings.TrimPrefix(header, "@@"))
 	if idx := strings.Index(body, "@@"); idx >= 0 {
@@ -477,19 +498,29 @@ func parsePatchHunkOldStart(header string) (int, bool, error) {
 			continue
 		}
 		startText := strings.TrimPrefix(field, "-")
+		count := -1
 		if idx := strings.Index(startText, ","); idx >= 0 {
+			countText := startText[idx+1:]
 			startText = startText[:idx]
+			parsedCount, err := strconv.Atoi(countText)
+			if err != nil || parsedCount < 0 {
+				return 0, 0, false, fmt.Errorf("invalid old range %q", field)
+			}
+			count = parsedCount
 		}
 		start, err := strconv.Atoi(startText)
 		if err != nil || start < 0 {
-			return 0, false, fmt.Errorf("invalid old range %q", field)
+			return 0, 0, false, fmt.Errorf("invalid old range %q", field)
 		}
-		if start == 0 {
+		if count < 0 {
+			count = 1
+		}
+		if start == 0 && count != 0 {
 			start = 1
 		}
-		return start, true, nil
+		return start, count, true, nil
 	}
-	return 0, false, nil
+	return 0, 0, false, nil
 }
 
 func byteOffsetForLine(content string, lineNumber int) (int, bool) {
@@ -508,6 +539,30 @@ func byteOffsetForLine(content string, lineNumber int) (int, bool) {
 		offset += next + 1
 	}
 	return offset, true
+}
+
+func byteOffsetForLineOrEOF(content string, lineNumber int) (int, bool) {
+	offset, ok := byteOffsetForLine(content, lineNumber)
+	if ok {
+		return offset, true
+	}
+	if lineNumber == countPatchContentLines(content)+1 {
+		return len(content), true
+	}
+	return 0, false
+}
+
+func countPatchContentLines(content string) int {
+	if content == "" {
+		return 1
+	}
+	count := 1
+	for _, r := range content {
+		if r == '\n' {
+			count++
+		}
+	}
+	return count
 }
 
 func patchLinesToText(lines []string, trailingNewline bool) string {
@@ -890,7 +945,9 @@ func RegisterWebTools(r *Registry, opts BuiltinOptions) {
 			"required": []string{"url"},
 		},
 		func(ctx context.Context, input map[string]any) (string, error) {
-			return auditCall(opts, "fetch_url", input, FetchURLTool)(ctx, input)
+			return auditCall(opts, "fetch_url", input, func(ctx context.Context, input map[string]any) (string, error) {
+				return FetchURLToolWithPolicy(ctx, input, opts)
+			})(ctx, input)
 		},
 	)
 

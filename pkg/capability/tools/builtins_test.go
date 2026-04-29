@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -172,6 +174,40 @@ func TestApplyPatchCompatToolUsesHunkLinePositionForDuplicateContext(t *testing.
 	}
 }
 
+func TestApplyPatchCompatToolInsertsAfterZeroLengthOldRange(t *testing.T) {
+	workspace := t.TempDir()
+	target := filepath.Join(workspace, "notes.txt")
+	if err := os.WriteFile(target, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	registry := NewRegistry()
+	RegisterBuiltins(registry, BuiltinOptions{
+		WorkingDir:      workspace,
+		PermissionLevel: "full",
+		ExecutionMode:   "host-reviewed",
+		Policy: NewPolicyEngine(PolicyOptions{
+			WorkingDir:      workspace,
+			PermissionLevel: "full",
+		}),
+	})
+
+	_, err := registry.Call(context.Background(), "apply_patch", map[string]any{
+		"input": "*** Begin Patch\n*** Update File: notes.txt\n@@ -2,0 +3,1 @@\n+inserted\n*** End Patch\n",
+	})
+	if err != nil {
+		t.Fatalf("apply_patch: %v", err)
+	}
+
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read patched file: %v", err)
+	}
+	if string(data) != "one\ntwo\ninserted\nthree\n" {
+		t.Fatalf("expected zero-length hunk to insert after old range line, got %q", data)
+	}
+}
+
 func TestUpdatePlanCompatToolValidatesAndReturnsPlan(t *testing.T) {
 	registry := NewRegistry()
 	RegisterBuiltins(registry, BuiltinOptions{})
@@ -199,6 +235,39 @@ func TestUpdatePlanCompatToolValidatesAndReturnsPlan(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "at most one in_progress") {
 		t.Fatalf("expected in_progress validation error, got %v", err)
+	}
+}
+
+func TestFetchURLToolHonorsEgressPolicy(t *testing.T) {
+	registry := NewRegistry()
+	RegisterBuiltins(registry, BuiltinOptions{
+		Policy: NewPolicyEngine(PolicyOptions{
+			AllowedEgressDomains: []string{"allowed.example"},
+		}),
+	})
+
+	_, err := registry.Call(context.Background(), "fetch_url", map[string]any{
+		"url": "https://blocked.example.invalid/private",
+	})
+	if err == nil || !strings.Contains(err.Error(), "egress denied") {
+		t.Fatalf("expected egress policy denial, got %v", err)
+	}
+}
+
+func TestFetchURLToolRejectsOversizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Repeat("x", 2*1024*1024+1)))
+	}))
+	defer server.Close()
+
+	registry := NewRegistry()
+	RegisterBuiltins(registry, BuiltinOptions{
+		Policy: NewPolicyEngine(PolicyOptions{}),
+	})
+
+	_, err := registry.Call(context.Background(), "fetch_url", map[string]any{"url": server.URL})
+	if err == nil || !strings.Contains(err.Error(), "byte limit") {
+		t.Fatalf("expected oversized response rejection, got %v", err)
 	}
 }
 

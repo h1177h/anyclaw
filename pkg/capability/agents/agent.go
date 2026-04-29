@@ -759,37 +759,12 @@ func (a *Agent) selectToolInfos(userInput string) []tools.ToolInfo {
 	}
 
 	query := normalizeToolSelectionText(userInput)
-	if !shouldExposeToolsForInput(query, allTools) && !a.shouldExposeCLIHubIntentTools(userInput) {
+	cliHubIntent := a.shouldExposeCLIHubIntentTools(userInput)
+	if !shouldExposeToolsForInput(query, allTools) && !cliHubIntent {
 		return nil
 	}
 
-	coreExact := map[string]struct{}{
-		"read_file":                {},
-		"write_file":               {},
-		"list_directory":           {},
-		"search_files":             {},
-		"run_command":              {},
-		"read":                     {},
-		"write":                    {},
-		"edit":                     {},
-		"apply_patch":              {},
-		"exec":                     {},
-		"process":                  {},
-		"memory_search":            {},
-		"memory_get":               {},
-		"web_search":               {},
-		"fetch_url":                {},
-		"web_fetch":                {},
-		"image":                    {},
-		"update_plan":              {},
-		"session_status":           {},
-		"clihub_catalog":           {},
-		"clihub_exec":              {},
-		"intent_route":             {},
-		"intent_list_capabilities": {},
-		"claw_bridge_context":      {},
-		"delegate_task":            {},
-	}
+	coreExact := selectedCoreToolNames(query, userInput, cliHubIntent)
 	corePrefixes := []string{"browser_", "desktop_", "skill_"}
 	appPrefixes := matchedToolPrefixes(query, allTools)
 
@@ -811,6 +786,68 @@ func (a *Agent) selectToolInfos(userInput string) []tools.ToolInfo {
 	}
 
 	return selected
+}
+
+func selectedCoreToolNames(query string, rawInput string, cliHubIntent bool) map[string]struct{} {
+	selected := make(map[string]struct{})
+	add := func(names ...string) {
+		for _, name := range names {
+			selected[name] = struct{}{}
+		}
+	}
+
+	rawLower := strings.ToLower(strings.TrimSpace(rawInput))
+	cjkAction := containsCJKActionIntent(query)
+	naturalAction := containsNaturalActionIntent(query)
+
+	if cjkAction || hasAnyToolSelectionKeyword(query, rawLower, "read", "view", "show", "open", "inspect", "file", "folder", "directory", "list", "search", "find", "code") {
+		add("read_file", "read", "list_directory", "search_files")
+	}
+	if cjkAction || naturalAction || hasAnyToolSelectionKeyword(query, rawLower, "write", "edit", "modify", "change", "create", "delete", "remove", "patch", "apply", "fix", "implement", "code", "refactor") {
+		add("write_file", "write", "edit", "apply_patch")
+	}
+	if cjkAction || hasAnyToolSelectionKeyword(query, rawLower, "run", "execute", "command", "terminal", "shell", "install", "build", "test", "compile", "start") {
+		add("run_command", "exec", "process")
+	}
+	if hasAnyToolSelectionKeyword(query, rawLower, "web", "search", "browse", "research", "latest", "online") {
+		add("web_search")
+	}
+	if strings.Contains(rawLower, "http://") || strings.Contains(rawLower, "https://") || hasAnyToolSelectionKeyword(query, rawLower, "url", "fetch", "download", "website", "page") {
+		add("fetch_url", "web_fetch")
+	}
+	if hasAnyToolSelectionKeyword(query, rawLower, "image", "picture", "photo", "screenshot", "vision", "ocr") {
+		add("image", "image_analyze")
+	}
+	if hasAnyToolSelectionKeyword(query, rawLower, "memory", "remember", "recall", "history") {
+		add("memory_search", "memory_get")
+	}
+	if hasAnyToolSelectionKeyword(query, rawLower, "plan", "steps", "todo", "task", "debug", "architecture", "design") {
+		add("update_plan")
+	}
+	if hasAnyToolSelectionKeyword(query, rawLower, "session", "status", "context") {
+		add("session_status", "claw_bridge_context")
+	}
+	if cliHubIntent || hasAnyToolSelectionKeyword(query, rawLower, "clihub", "intent", "capability") {
+		add("clihub_catalog", "clihub_exec", "intent_route", "intent_list_capabilities")
+	}
+	if hasAnyToolSelectionKeyword(query, rawLower, "delegate", "subagent", "sub agent") {
+		add("delegate_task")
+	}
+
+	return selected
+}
+
+func hasAnyToolSelectionKeyword(query string, rawLower string, keywords ...string) bool {
+	for _, keyword := range keywords {
+		keyword = strings.TrimSpace(strings.ToLower(keyword))
+		if keyword == "" {
+			continue
+		}
+		if strings.Contains(query, keyword) || strings.Contains(rawLower, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Agent) shouldExposeCLIHubIntentTools(userInput string) bool {

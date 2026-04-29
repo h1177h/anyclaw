@@ -361,9 +361,47 @@ func TestSelectToolInfosExposesOpenClawCompatibleCoreTools(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	got := strings.Join(names, ",")
-	for _, name := range []string{"read", "write", "edit", "apply_patch", "exec", "process", "web_fetch", "image", "update_plan", "session_status"} {
+	for _, name := range []string{"read", "write", "edit", "apply_patch", "exec", "process", "web_fetch", "image"} {
 		if !strings.Contains(got, name) {
 			t.Fatalf("expected OpenClaw-compatible tool %q to be exposed, got %q", name, got)
+		}
+	}
+
+	planning := ag.selectToolInfos("show session status and update the plan steps")
+	names = names[:0]
+	for _, tool := range planning {
+		names = append(names, tool.Name)
+	}
+	got = strings.Join(names, ",")
+	for _, name := range []string{"update_plan", "session_status"} {
+		if !strings.Contains(got, name) {
+			t.Fatalf("expected OpenClaw-compatible tool %q to be exposed for planning/status, got %q", name, got)
+		}
+	}
+}
+
+func TestSelectToolInfosOnlyExposesRelevantCoreTools(t *testing.T) {
+	registry := tools.NewRegistry()
+	for _, name := range []string{"read", "write", "edit", "apply_patch", "exec", "process", "fetch_url", "web_fetch", "image", "image_analyze"} {
+		registry.RegisterTool(name, "OpenClaw-compatible core tool", map[string]any{}, nil)
+	}
+
+	ag := New(Config{Tools: registry})
+
+	selected := ag.selectToolInfos("fetch this URL: https://example.com/notes")
+	names := make(map[string]bool, len(selected))
+	for _, tool := range selected {
+		names[tool.Name] = true
+	}
+
+	for _, name := range []string{"fetch_url", "web_fetch"} {
+		if !names[name] {
+			t.Fatalf("expected URL fetch tool %q to be exposed, got %#v", name, names)
+		}
+	}
+	for _, name := range []string{"read", "write", "edit", "apply_patch", "exec", "process", "image", "image_analyze"} {
+		if names[name] {
+			t.Fatalf("expected unrelated core tool %q to stay hidden, got %#v", name, names)
 		}
 	}
 }

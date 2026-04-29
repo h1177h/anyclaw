@@ -318,7 +318,7 @@ func TestRequireToolApprovalHandlesDangerousAndSafeTools(t *testing.T) {
 }
 
 func TestRequiresToolApprovalNameIncludesOpenClawCompatibleAliases(t *testing.T) {
-	dangerousAliases := []string{"exec", "process", "write", "edit", "apply_patch"}
+	dangerousAliases := []string{"exec", "process", "write", "edit", "apply_patch", "fetch_url", "web_fetch", "image", "image_analyze"}
 	for _, name := range dangerousAliases {
 		if !RequiresToolApprovalName(name) {
 			t.Fatalf("expected OpenClaw-compatible tool %q to require approval", name)

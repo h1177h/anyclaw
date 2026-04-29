@@ -628,9 +628,19 @@ func WebSearchTool(ctx context.Context, input map[string]any) (string, error) {
 }
 
 func FetchURLTool(ctx context.Context, input map[string]any) (string, error) {
+	return FetchURLToolWithPolicy(ctx, input, BuiltinOptions{})
+}
+
+func FetchURLToolWithPolicy(ctx context.Context, input map[string]any, opts BuiltinOptions) (string, error) {
 	urlStr, ok := input["url"].(string)
 	if !ok {
 		return "", fmt.Errorf("url is required")
+	}
+
+	if opts.Policy != nil {
+		if err := opts.Policy.CheckEgressURL(urlStr); err != nil {
+			return "", err
+		}
 	}
 
 	content, err := webtool.Fetch(ctx, urlStr)
