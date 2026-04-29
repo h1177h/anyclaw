@@ -50,8 +50,6 @@ func runStoreCommand(args []string) error {
 		return runStoreVerify(args[1:], opts)
 	case "trust":
 		return runStoreTrust(args[1:], opts)
-	case "sources":
-		return runStoreSources(args[1:], opts)
 	case "update":
 		return runStoreUpdate(args[1:], opts)
 	default:
@@ -72,7 +70,6 @@ Usage:
   anyclaw store sign <plugin-dir> <key-file>
   anyclaw store verify <plugin-dir> <public-key-file>
   anyclaw store trust <key-id> <public-key-file> [name]
-  anyclaw store sources [add <name> <url>]
   anyclaw store update [plugin-id]
 
 Options:
@@ -432,79 +429,6 @@ func publicKeyIdentity(data []byte) (string, string, error) {
 	sum := sha256.Sum256(block.Bytes)
 	fingerprint := fmt.Sprintf("%x", sum)
 	return fingerprint[:16], fingerprint, nil
-}
-
-func runStoreSources(args []string, opts storeCommandOptions) error {
-	resolved, err := resolveStoreCommandOptions(opts)
-	if err != nil {
-		return err
-	}
-	sourcesPath := filepath.Join(resolved.workDir, "sources.json")
-
-	if len(args) > 0 && args[0] == "add" {
-		if len(args) < 3 {
-			return fmt.Errorf("usage: anyclaw store sources add <name> <url>")
-		}
-
-		sources, err := loadStoreSources(sourcesPath)
-		if err != nil {
-			return err
-		}
-		sources = append(sources, &plugin.PluginSource{
-			Name: args[1],
-			URL:  args[2],
-			Type: "http",
-		})
-		if err := saveStoreSources(sourcesPath, sources); err != nil {
-			return err
-		}
-
-		printSuccess("Added source: %s -> %s", args[1], args[2])
-		return nil
-	}
-
-	sources, err := loadStoreSources(sourcesPath)
-	if err != nil {
-		return err
-	}
-	if len(sources) == 0 {
-		printInfo("No sources configured.")
-		return nil
-	}
-
-	fmt.Printf("Configured sources (%d):\n\n", len(sources))
-	for _, source := range sources {
-		fmt.Printf("  %s: %s (%s)\n", source.Name, source.URL, source.Type)
-	}
-	return nil
-}
-
-func loadStoreSources(path string) ([]*plugin.PluginSource, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to read store sources: %w", err)
-	}
-
-	var sources []*plugin.PluginSource
-	if err := json.Unmarshal(data, &sources); err != nil {
-		return nil, fmt.Errorf("failed to parse store sources: %w", err)
-	}
-	return sources, nil
-}
-
-func saveStoreSources(path string, sources []*plugin.PluginSource) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(sources, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	return os.WriteFile(path, data, 0o644)
 }
 
 func runStoreUpdate(args []string, opts storeCommandOptions) error {

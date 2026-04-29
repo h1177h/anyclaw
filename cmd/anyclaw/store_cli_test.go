@@ -43,6 +43,20 @@ func TestRunAnyClawCLIRoutesStoreUsage(t *testing.T) {
 	}
 }
 
+func TestRunStoreSourcesCommandIsNotExposed(t *testing.T) {
+	withStoreCLITempDir(t)
+
+	stdout, _, err := captureCLIOutput(t, func() error {
+		return runAnyClawCLI([]string{"store", "sources"})
+	})
+	if err == nil || !strings.Contains(err.Error(), "unknown store command: sources") {
+		t.Fatalf("expected unknown sources command error, got %v", err)
+	}
+	if strings.Contains(stdout, "anyclaw store sources") {
+		t.Fatalf("expected usage to omit inactive sources command, got %q", stdout)
+	}
+}
+
 func TestRunStoreListPrintsBuiltinPackages(t *testing.T) {
 	withStoreCLITempDir(t)
 
@@ -169,60 +183,6 @@ func TestRunStoreInstallUsesConfiguredPaths(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "[installed]") {
 		t.Fatalf("expected list to read installed marker from configured work dir, got %q", stdout)
-	}
-}
-
-func TestRunStoreSourcesAddAndList(t *testing.T) {
-	withStoreCLITempDir(t)
-
-	stdout, _, err := captureCLIOutput(t, func() error {
-		return runAnyClawCLI([]string{"store", "sources", "add", "local", "https://example.test/plugins.json"})
-	})
-	if err != nil {
-		t.Fatalf("runAnyClawCLI store sources add: %v", err)
-	}
-	if !strings.Contains(stdout, "Added source: local -> https://example.test/plugins.json") {
-		t.Fatalf("unexpected sources add output: %q", stdout)
-	}
-
-	stdout, _, err = captureCLIOutput(t, func() error {
-		return runAnyClawCLI([]string{"store", "sources"})
-	})
-	if err != nil {
-		t.Fatalf("runAnyClawCLI store sources: %v", err)
-	}
-	if !strings.Contains(stdout, "local: https://example.test/plugins.json (http)") {
-		t.Fatalf("unexpected sources output: %q", stdout)
-	}
-}
-
-func TestRunStoreSourcesUsesConfiguredWorkDir(t *testing.T) {
-	withStoreCLITempDir(t)
-
-	configDir := filepath.Join(t.TempDir(), "configs")
-	cfg := config.DefaultConfig()
-	cfg.Agent.WorkDir = filepath.Join("runtime", ".anyclaw")
-	configPath := filepath.Join(configDir, "anyclaw.json")
-	if err := cfg.Save(configPath); err != nil {
-		t.Fatalf("Save config: %v", err)
-	}
-
-	stdout, _, err := captureCLIOutput(t, func() error {
-		return runAnyClawCLI([]string{"store", "sources", "--config", configPath, "add", "local", "https://example.test/plugins.json"})
-	})
-	if err != nil {
-		t.Fatalf("runAnyClawCLI store sources add: %v", err)
-	}
-	if !strings.Contains(stdout, "Added source: local -> https://example.test/plugins.json") {
-		t.Fatalf("unexpected sources add output: %q", stdout)
-	}
-
-	configuredSources := filepath.Join(configDir, "runtime", ".anyclaw", "sources.json")
-	if _, err := os.Stat(configuredSources); err != nil {
-		t.Fatalf("expected sources under configured work dir: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(".anyclaw", "sources.json")); !os.IsNotExist(err) {
-		t.Fatalf("expected default cwd sources file to remain unused, got %v", err)
 	}
 }
 
