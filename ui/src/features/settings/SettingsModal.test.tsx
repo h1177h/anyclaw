@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsModal } from "@/features/settings/SettingsModal";
@@ -79,7 +80,11 @@ function renderWithClient(node: React.ReactNode) {
     },
   });
 
-  return render(<QueryClientProvider client={client}>{node}</QueryClientProvider>);
+  return render(
+    <MemoryRouter>
+      <QueryClientProvider client={client}>{node}</QueryClientProvider>
+    </MemoryRouter>,
+  );
 }
 
 function mockWorkspaceOverview(data: WorkspaceOverview) {
@@ -136,7 +141,9 @@ describe("SettingsModal", () => {
       ],
     });
 
-    useShellStore.setState({ settingsSection: "skills" });
+    act(() => {
+      useShellStore.setState({ settingsSection: "skills" });
+    });
 
     renderWithClient(<SettingsModal onClose={vi.fn()} />);
 
@@ -186,12 +193,40 @@ describe("SettingsModal", () => {
       ],
     });
 
-    useShellStore.setState({ settingsSection: "agents" });
+    act(() => {
+      useShellStore.setState({ settingsSection: "agents" });
+    });
 
     renderWithClient(<SettingsModal onClose={vi.fn()} />);
 
     expect(screen.getByText("当前仅展示状态")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Agent One 状态" })).not.toBeInTheDocument();
     expect(screen.getByText("后端已启用")).toBeInTheDocument();
+  });
+
+  it("links skill and agent management to the market page", () => {
+    mockWorkspaceOverview(createOverview());
+
+    act(() => {
+      useShellStore.setState({ settingsSection: "skills" });
+    });
+
+    const onClose = vi.fn();
+    const view = renderWithClient(<SettingsModal onClose={onClose} />);
+
+    const skillLink = screen.getByRole("link", { name: /添加 Skill/i });
+    expect(skillLink).toHaveAttribute("href", "/market?kind=skill");
+
+    fireEvent.click(skillLink);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useShellStore.setState({ settingsSection: "agents" });
+    });
+    view.unmount();
+    renderWithClient(<SettingsModal onClose={onClose} />);
+
+    const agentLink = screen.getByRole("link", { name: /添加 Agent/i });
+    expect(agentLink).toHaveAttribute("href", "/market");
   });
 });

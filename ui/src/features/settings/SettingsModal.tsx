@@ -6,12 +6,14 @@ import {
   CheckCircle2,
   FolderKanban,
   Info,
+  Plus,
   Search,
   SlidersHorizontal,
   Sparkles,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { BackendPropertyList } from "@/features/backend-ui/BackendPropertyList";
 import { StatusBadge, type StatusBadgeTone } from "@/features/backend-ui/StatusBadge";
@@ -358,9 +360,14 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             <div className="mt-3 text-sm text-[#667085]">查看当前工作区内已安装或已识别的 Skill。</div>
           </div>
 
-          <div className="rounded-full bg-[#f4f5f7] px-4 py-2 text-sm text-[#667085]">
-            市场页将在后续 PR 中接入
-          </div>
+          <Link
+            className="shell-button h-12 justify-center px-5 text-sm font-medium"
+            onClick={onClose}
+            to="/market?kind=skill"
+          >
+            <Plus size={16} strokeWidth={2.1} />
+            <span>添加 Skill</span>
+          </Link>
         </div>
 
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -442,9 +449,14 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             <div className="mt-3 text-sm text-[#667085]">查看当前工作区内可用的 Agent 和其挂载能力。</div>
           </div>
 
-          <div className="rounded-full bg-[#f4f5f7] px-4 py-2 text-sm text-[#667085]">
-            Agent 市场将在后续 PR 中接入
-          </div>
+          <Link
+            className="shell-button h-12 justify-center px-5 text-sm font-medium"
+            onClick={onClose}
+            to="/market"
+          >
+            <Plus size={16} strokeWidth={2.1} />
+            <span>添加 Agent</span>
+          </Link>
         </div>
 
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
