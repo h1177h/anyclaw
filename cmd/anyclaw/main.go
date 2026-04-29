@@ -38,6 +38,8 @@ func runAnyClawCLI(args []string) error {
 		return runPluginCommand(args[1:])
 	case "channels":
 		return runChannelsCommand(args[1:])
+	case "store":
+		return runStoreCommand(args[1:])
 	case "claw":
 		return runClawCommand(args[1:])
 	case "status":
@@ -71,6 +73,7 @@ Usage:
   anyclaw clihub <subcommand>         Run CLI Hub commands
   anyclaw plugin <subcommand>         Run plugin management commands
   anyclaw channels <subcommand>       Run channels management commands
+  anyclaw store <subcommand>          Browse and install agent packages
   anyclaw claw <subcommand>           Inspect claw-code-main bridge reference data
   anyclaw status [options]            Show gateway runtime status
   anyclaw health [options]            Show gateway health summary
