@@ -18,6 +18,8 @@ import (
 	appRuntime "github.com/1024XEngineer/anyclaw/pkg/runtime"
 )
 
+var piRequestTimeout = 5 * time.Second
+
 func runPiCommand(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		printPiUsage()
@@ -135,9 +137,11 @@ func runPiSessions(args []string) error {
 	}
 
 	path := buildPiSessionsPath(*userID, *sessionID)
+	ctx, cancel := newPiRequestContext()
+	defer cancel()
 
 	var result pi.RPCResponse
-	if err := doPiJSON(context.Background(), *host, *port, http.MethodGet, path, nil, &result); err != nil {
+	if err := doPiJSON(ctx, *host, *port, http.MethodGet, path, nil, &result); err != nil {
 		return err
 	}
 	if !result.Success {
@@ -161,9 +165,11 @@ func runPiAgents(args []string) error {
 	}
 
 	path := buildPiAgentsPath(*userID)
+	ctx, cancel := newPiRequestContext()
+	defer cancel()
 
 	var result pi.RPCResponse
-	if err := doPiJSON(context.Background(), *host, *port, http.MethodGet, path, nil, &result); err != nil {
+	if err := doPiJSON(ctx, *host, *port, http.MethodGet, path, nil, &result); err != nil {
 		return err
 	}
 	if !result.Success {
@@ -184,7 +190,7 @@ func runPiStatus(args []string) error {
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := newPiRequestContext()
 	defer cancel()
 
 	var result pi.RPCResponse
@@ -217,6 +223,10 @@ func buildPiAgentsPath(userID string) string {
 		path += "/" + url.PathEscape(userID)
 	}
 	return path
+}
+
+func newPiRequestContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), piRequestTimeout)
 }
 
 func doPiJSON(ctx context.Context, host string, port int, method string, path string, body any, out any) error {
