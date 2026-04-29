@@ -429,13 +429,13 @@ func (m *ModularConfigManager) getDefaultConfig() *Config {
 		},
 		Agent: AgentConfig{
 			Name:                            "AnyClaw",
-			PermissionLevel:                 "full",
+			PermissionLevel:                 "limited",
 			RequireConfirmationForDangerous: true,
 			Profiles: []AgentProfile{
 				{
 					Name:            "default",
 					Description:     "Default agent profile",
-					PermissionLevel: "full",
+					PermissionLevel: "limited",
 				},
 			},
 		},
@@ -462,7 +462,7 @@ func (m *ModularConfigManager) getDefaultConfig() *Config {
 		},
 		Sandbox: SandboxConfig{
 			Enabled:       false,
-			ExecutionMode: "host-reviewed",
+			ExecutionMode: "sandbox",
 		},
 		Security: SecurityConfig{
 			ProtectedPaths: []string{

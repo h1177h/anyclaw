@@ -26,7 +26,7 @@ func DefaultConfig() *Config {
 			Description:                     "Your AI assistant with file-based memory",
 			WorkDir:                         ".anyclaw",
 			WorkingDir:                      "workflows",
-			PermissionLevel:                 "full",
+			PermissionLevel:                 "limited",
 			RequireConfirmationForDangerous: true,
 		},
 		Skills: SkillsConfig{
@@ -59,7 +59,7 @@ func DefaultConfig() *Config {
 		},
 		Sandbox: SandboxConfig{
 			Enabled:       false,
-			ExecutionMode: "host-reviewed",
+			ExecutionMode: "sandbox",
 			Backend:       "local",
 			BaseDir:       ".anyclaw/sandboxes",
 			DockerImage:   DefaultSandboxDockerImage,
