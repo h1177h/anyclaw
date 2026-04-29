@@ -22,17 +22,5 @@ services:
       timeout: 10s
       retries: 3
 
-  sandbox:
-    build:
-      context: .
-      dockerfile: Dockerfile.sandbox
-    container_name: anyclaw-sandbox
-    restart: "no"
-    volumes:
-      - sandbox-workspace:/home/sandbox/workspace
-    profiles:
-      - sandbox
-
 volumes:
   anyclaw-data:
-  sandbox-workspace:
