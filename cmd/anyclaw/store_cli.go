@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
@@ -21,6 +22,7 @@ import (
 type storeCommandOptions struct {
 	configPath string
 	workDir    string
+	pluginDir  string
 }
 
 func runStoreCommand(args []string) error {
@@ -50,6 +52,8 @@ func runStoreCommand(args []string) error {
 		return runStoreVerify(args[1:], opts)
 	case "trust":
 		return runStoreTrust(args[1:], opts)
+	case "sources":
+		return runStoreSources(args[1:], opts)
 	case "update":
 		return runStoreUpdate(args[1:], opts)
 	default:
@@ -70,6 +74,8 @@ Usage:
   anyclaw store sign <plugin-dir> <key-file>
   anyclaw store verify <plugin-dir> <public-key-file>
   anyclaw store trust <key-id> <public-key-file> [name]
+  anyclaw store sources [list]
+  anyclaw store sources add <name> <url> [type]
   anyclaw store update [plugin-id]
 
 Options:
@@ -110,6 +116,36 @@ func newStoreManager(opts storeCommandOptions) (agentstore.StoreManager, error) 
 	return agentstore.NewStoreManager(resolved.workDir, resolved.configPath)
 }
 
+func newStoreMarket(opts storeCommandOptions) (*plugin.Store, bool, error) {
+	resolved, err := resolveStoreCommandOptions(opts)
+	if err != nil {
+		return nil, false, err
+	}
+	sources, err := plugin.LoadSources(plugin.SourcesPath(resolved.workDir))
+	if err != nil {
+		return nil, false, err
+	}
+	if len(sources) == 0 {
+		return nil, false, nil
+	}
+
+	marketDir := filepath.Join(resolved.pluginDir, ".market")
+	cacheDir := filepath.Join(resolved.pluginDir, ".cache")
+	if err := os.MkdirAll(marketDir, 0o755); err != nil {
+		return nil, false, err
+	}
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return nil, false, err
+	}
+
+	trustStore := plugin.NewTrustStore()
+	trustPath := filepath.Join(resolved.workDir, "trust.json")
+	if err := trustStore.Load(trustPath); err != nil && !os.IsNotExist(err) {
+		return nil, false, fmt.Errorf("failed to load trust store: %w", err)
+	}
+	return plugin.NewStore(resolved.pluginDir, marketDir, cacheDir, sources, trustStore, nil), true, nil
+}
+
 func resolveStoreCommandOptions(opts storeCommandOptions) (storeCommandOptions, error) {
 	configPath := strings.TrimSpace(opts.configPath)
 	if configPath == "" {
@@ -128,9 +164,17 @@ func resolveStoreCommandOptions(opts storeCommandOptions) (storeCommandOptions, 
 	if strings.TrimSpace(workDir) == "" {
 		workDir = ".anyclaw"
 	}
+	pluginDir := strings.TrimSpace(opts.pluginDir)
+	if pluginDir == "" {
+		pluginDir = cfg.Plugins.Dir
+	}
+	if strings.TrimSpace(pluginDir) == "" {
+		pluginDir = "plugins"
+	}
 	return storeCommandOptions{
 		configPath: resolvedConfigPath,
 		workDir:    config.ResolvePath(resolvedConfigPath, workDir),
+		pluginDir:  config.ResolvePath(resolvedConfigPath, pluginDir),
 	}, nil
 }
 
@@ -146,7 +190,11 @@ func runStoreList(args []string, opts storeCommandOptions) error {
 	}
 
 	packages := sm.List(filter)
-	if len(packages) == 0 {
+	marketResults, err := searchStoreMarket(opts, "", filter.Category == "")
+	if err != nil {
+		return err
+	}
+	if len(packages) == 0 && len(marketResults) == 0 {
 		printInfo("No packages found.")
 		return nil
 	}
@@ -168,6 +216,7 @@ func runStoreList(args []string, opts storeCommandOptions) error {
 		fmt.Println("     " + ui.Dim.Sprint(fmt.Sprintf("id: %s", pkg.ID)))
 		fmt.Println()
 	}
+	printMarketListings("Market plugins", marketResults)
 	return nil
 }
 
@@ -183,12 +232,16 @@ func runStoreSearch(args []string, opts storeCommandOptions) error {
 	}
 
 	results := sm.Search(keyword)
-	if len(results) == 0 {
+	marketResults, err := searchStoreMarket(opts, keyword, true)
+	if err != nil {
+		return err
+	}
+	if len(results) == 0 && len(marketResults) == 0 {
 		fmt.Printf("No results for %q.\n", keyword)
 		return nil
 	}
 
-	fmt.Println(ui.Bold.Sprint(fmt.Sprintf("Results (%d):", len(results))))
+	fmt.Println(ui.Bold.Sprint(fmt.Sprintf("Results (%d):", len(results)+len(marketResults))))
 	fmt.Println()
 	for _, pkg := range results {
 		icon := pkg.Icon
@@ -204,6 +257,7 @@ func runStoreSearch(args []string, opts storeCommandOptions) error {
 		fmt.Println("     " + ui.Dim.Sprint(fmt.Sprintf("install: anyclaw store install %s", pkg.ID)))
 		fmt.Println()
 	}
+	printMarketListings("Market plugins", marketResults)
 	return nil
 }
 
@@ -219,6 +273,9 @@ func runStoreInfo(args []string, opts storeCommandOptions) error {
 
 	pkg, err := sm.Get(args[0])
 	if err != nil {
+		if handled, marketErr := printStoreMarketInfo(opts, args[0]); handled || marketErr != nil {
+			return marketErr
+		}
 		return err
 	}
 
@@ -266,21 +323,32 @@ func runStoreInstall(args []string, opts storeCommandOptions) error {
 	}
 
 	id := args[0]
-	if sm.IsInstalled(id) {
-		printInfo("Already installed: %s", id)
+	if pkg, err := sm.Get(id); err == nil {
+		if sm.IsInstalled(id) {
+			printInfo("Already installed: %s", id)
+			return nil
+		}
+		if err := sm.Install(id); err != nil {
+			return err
+		}
+		printSuccess("Installed: %s (%s)", pkg.DisplayName, id)
 		return nil
 	}
 
-	if err := sm.Install(id); err != nil {
+	market, ok, err := newStoreMarket(opts)
+	if err != nil {
 		return err
 	}
-
-	pkg, _ := sm.Get(id)
-	if pkg != nil {
-		printSuccess("Installed: %s (%s)", pkg.DisplayName, id)
-	} else {
-		printSuccess("Installed: %s", id)
+	if !ok {
+		return fmt.Errorf("agent package not found: %s", id)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	result, err := market.Install(ctx, id, "")
+	if err != nil {
+		return err
+	}
+	printSuccess("Installed plugin: %s (%s)", result.PluginID, result.Version)
 	return nil
 }
 
@@ -429,6 +497,132 @@ func publicKeyIdentity(data []byte) (string, string, error) {
 	sum := sha256.Sum256(block.Bytes)
 	fingerprint := fmt.Sprintf("%x", sum)
 	return fingerprint[:16], fingerprint, nil
+}
+
+func runStoreSources(args []string, opts storeCommandOptions) error {
+	resolved, err := resolveStoreCommandOptions(opts)
+	if err != nil {
+		return err
+	}
+	sourcesPath := plugin.SourcesPath(resolved.workDir)
+
+	if len(args) > 0 && strings.EqualFold(strings.TrimSpace(args[0]), "add") {
+		if len(args) < 3 {
+			return fmt.Errorf("usage: anyclaw store sources add <name> <url> [type]")
+		}
+		sourceType := "http"
+		if len(args) > 3 {
+			sourceType = args[3]
+		}
+		source, err := plugin.NormalizeSource(plugin.PluginSource{
+			Name: args[1],
+			URL:  args[2],
+			Type: sourceType,
+		})
+		if err != nil {
+			return err
+		}
+		sources, err := plugin.LoadSources(sourcesPath)
+		if err != nil {
+			return err
+		}
+		sources = plugin.MergeSources(sources, []plugin.PluginSource{source})
+		if err := plugin.SaveSources(sourcesPath, sources); err != nil {
+			return fmt.Errorf("failed to save sources: %w", err)
+		}
+		printSuccess("Added source: %s -> %s", source.Name, source.URL)
+		return nil
+	}
+	if len(args) > 0 && !strings.EqualFold(strings.TrimSpace(args[0]), "list") {
+		return fmt.Errorf("unknown store sources command: %s", args[0])
+	}
+
+	sources, err := plugin.LoadSources(sourcesPath)
+	if err != nil {
+		return err
+	}
+	if len(sources) == 0 {
+		printInfo("No custom sources configured.")
+		return nil
+	}
+
+	fmt.Printf("Configured sources (%d):\n\n", len(sources))
+	for _, source := range sources {
+		fmt.Printf("  %s: %s (%s)\n", source.Name, source.URL, source.Type)
+	}
+	return nil
+}
+
+func searchStoreMarket(opts storeCommandOptions, query string, enabled bool) ([]plugin.PluginListing, error) {
+	if !enabled {
+		return nil, nil
+	}
+	market, ok, err := newStoreMarket(opts)
+	if err != nil || !ok {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return market.Search(ctx, plugin.SearchFilter{Query: query, Limit: 50})
+}
+
+func printStoreMarketInfo(opts storeCommandOptions, id string) (bool, error) {
+	market, ok, err := newStoreMarket(opts)
+	if err != nil || !ok {
+		return false, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	listing, err := market.GetPlugin(ctx, id)
+	if err != nil {
+		return false, nil
+	}
+
+	pluginID := listing.PluginID
+	if strings.TrimSpace(pluginID) == "" {
+		pluginID = id
+	}
+	name := listing.Name
+	if strings.TrimSpace(name) == "" {
+		name = pluginID
+	}
+	fmt.Println("- " + ui.Bold.Sprint(name))
+	fmt.Println()
+	fmt.Println(fmt.Sprintf("  id:          %s", pluginID))
+	fmt.Println(fmt.Sprintf("  description: %s", listing.Description))
+	fmt.Println(fmt.Sprintf("  author:      %s", listing.Author))
+	fmt.Println(fmt.Sprintf("  version:     %s", listing.Version))
+	fmt.Println(fmt.Sprintf("  tags:        %s", strings.Join(listing.Tags, ", ")))
+	fmt.Println(fmt.Sprintf("  downloads:   %d", listing.Downloads))
+	fmt.Println(fmt.Sprintf("  trust:       %s", listing.TrustLevel))
+	fmt.Println()
+	fmt.Println("  " + ui.Dim.Sprint(fmt.Sprintf("install: anyclaw store install %s", pluginID)))
+	return true, nil
+}
+
+func printMarketListings(title string, listings []plugin.PluginListing) {
+	if len(listings) == 0 {
+		return
+	}
+	fmt.Println(ui.Bold.Sprint(fmt.Sprintf("%s (%d):", title, len(listings))))
+	fmt.Println()
+	for _, listing := range listings {
+		id := listing.PluginID
+		if strings.TrimSpace(id) == "" {
+			id = listing.Name
+		}
+		name := listing.Name
+		if strings.TrimSpace(name) == "" {
+			name = id
+		}
+		fmt.Println("  - " + ui.Bold.Sprint(name))
+		fmt.Println("     " + ui.Dim.Sprint(listing.Description))
+		if listing.Version != "" || listing.Author != "" {
+			fmt.Println("     " + ui.Dim.Sprint(fmt.Sprintf("version: %s | author: %s", listing.Version, listing.Author)))
+		}
+		fmt.Println("     " + ui.Dim.Sprint(fmt.Sprintf("install: anyclaw store install %s", id)))
+		fmt.Println()
+	}
 }
 
 func runStoreUpdate(args []string, opts storeCommandOptions) error {

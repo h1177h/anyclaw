@@ -18,10 +18,19 @@ func (s *Server) initMarketStore() {
 	_ = os.MkdirAll(marketDir, 0o755)
 	_ = os.MkdirAll(cacheDir, 0o755)
 
-	sources := []plugin.PluginSource{
-		{Name: "default", URL: "https://market.anyclaw.github.io", Type: "http"},
-	}
-
 	trustStore := plugin.NewTrustStore()
-	s.marketStore = plugin.NewStore(pluginDir, marketDir, cacheDir, sources, trustStore, s.plugins)
+	s.marketStore = plugin.NewStore(pluginDir, marketDir, cacheDir, marketSources(s.mainRuntime.WorkDir), trustStore, s.plugins)
+}
+
+func marketSources(workDir string) []plugin.PluginSource {
+	sources, _ := loadConfiguredMarketSources(workDir)
+	return sources
+}
+
+func loadConfiguredMarketSources(workDir string) ([]plugin.PluginSource, error) {
+	configured, err := plugin.LoadSources(plugin.SourcesPath(workDir))
+	if err != nil {
+		return plugin.DefaultSources(), err
+	}
+	return plugin.MergeSources(plugin.DefaultSources(), configured), nil
 }
