@@ -63,9 +63,10 @@ By default, commands read `anyclaw.json` from the current directory. Pass
 
 ## Environment Variables
 
-`.env.example` is a template for values you export in your shell, or for tools
-such as Docker Compose that load `.env` files. The AnyClaw CLI does not load
-`.env` files by itself.
+`.env.example` is a template for values you export in your shell. It also
+includes the `ANYCLAW_LLM_*` names that `docker-compose.yml` reads from a
+Compose-managed `.env` file. The AnyClaw CLI does not load `.env` files by
+itself.
 
 For local CLI runs, export variables before launching AnyClaw. Common examples:
 
@@ -130,7 +131,8 @@ Inspect the running gateway:
 
 ## Run with Docker Compose
 
-Create a `.env` file for Compose, then start the gateway:
+Create a `.env` file for Compose. Use the `ANYCLAW_LLM_*` names because these
+are the variables read by `docker-compose.yml`:
 
 ```sh
 ANYCLAW_LLM_PROVIDER=openai
@@ -138,12 +140,20 @@ ANYCLAW_LLM_MODEL=gpt-4o
 ANYCLAW_LLM_API_KEY=...
 ```
 
+Create the host-side runtime workspace, then start the gateway:
+
+```sh
+mkdir -p workspace/workflows
+```
+
 ```sh
 docker compose up --build
 ```
 
-The service exposes the gateway on port `18789` and stores runtime state under
-`/workspace/.anyclaw` inside the container.
+The service exposes the gateway on port `18789`. Gateway state is stored in the
+`anyclaw-data` volume at `/workspace/.anyclaw`, while agent workflow files are
+bind-mounted from `./workspace/workflows` to `/workspace/workflows`. This
+runtime workspace is separate from the source checkout used to build the image.
 
 ## Useful Commands
 
