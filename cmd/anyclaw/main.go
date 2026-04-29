@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 func main() {
@@ -22,10 +23,13 @@ func runAnyClawCLI(args []string) error {
 		return nil
 	}
 
-	switch args[0] {
+	command := normalizeRootCommand(args[0])
+	switch command {
 	case "help", "-h", "--help":
 		printCLIUsage()
 		return nil
+	case "agent":
+		return runAgentCommand(context.Background(), args[1:])
 	case "mcp":
 		return runMCPCommand(args[1:])
 	case "models":
@@ -38,6 +42,14 @@ func runAnyClawCLI(args []string) error {
 		return runPluginCommand(args[1:])
 	case "channels":
 		return runChannelsCommand(args[1:])
+	case "task":
+		return runTaskCommand(context.Background(), args[1:])
+	case "shell":
+		return runShellCommand(args[1:])
+	case "cron":
+		return runCronCommand(context.Background(), args[1:])
+	case "pi":
+		return runPiCommand(context.Background(), args[1:])
 	case "store":
 		return runStoreCommand(args[1:])
 	case "claw":
@@ -66,15 +78,45 @@ func runAnyClawCLI(args []string) error {
 	}
 }
 
+func normalizeRootCommand(command string) string {
+	switch strings.ToLower(strings.TrimSpace(command)) {
+	case "skills":
+		return "skill"
+	case "plugins":
+		return "plugin"
+	case "agents":
+		return "agent"
+	case "channel":
+		return "channels"
+	case "session":
+		return "sessions"
+	case "approval":
+		return "approvals"
+	case "model":
+		return "models"
+	case "setup":
+		return "onboard"
+	case "tasks":
+		return "task"
+	default:
+		return strings.ToLower(strings.TrimSpace(command))
+	}
+}
+
 func printCLIUsage() {
 	fmt.Print(`AnyClaw commands:
 Usage:
+  anyclaw agent <subcommand>          Manage and run configured agents
   anyclaw mcp <subcommand>            Run MCP-related commands
   anyclaw models <subcommand>         Run model management commands
   anyclaw config <subcommand>         Run config management commands
   anyclaw clihub <subcommand>         Run CLI Hub commands
   anyclaw plugin <subcommand>         Run plugin management commands
   anyclaw channels <subcommand>       Run channels management commands
+  anyclaw task <subcommand>           Run one-shot agent tasks
+  anyclaw shell --execute <command>    Execute a reviewed shell command
+  anyclaw cron <subcommand>           Manage local cron tasks
+  anyclaw pi <subcommand>             Run Pi Agent RPC commands
   anyclaw store <subcommand>          Browse and install agent packages
   anyclaw claw <subcommand>           Inspect claw-code-main bridge reference data
   anyclaw pairing <subcommand>        Manage Gateway device pairing
