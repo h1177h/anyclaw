@@ -142,6 +142,30 @@ func TestEnsureDesktopControlUIBuiltErrorsWhenBuildIsMissing(t *testing.T) {
 	}
 }
 
+func TestStartDesktopPreflightsMissingControlUI(t *testing.T) {
+	root := t.TempDir()
+	configPath := writeDesktopConfig(t, root)
+	restoreDesktopWorkingDir(t)
+	t.Setenv("ANYCLAW_DESKTOP_ROOT", root)
+	t.Setenv("ANYCLAW_DESKTOP_CONFIG", configPath)
+	t.Setenv("ANYCLAW_CONTROL_UI_ROOT", "")
+
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir temp dir: %v", err)
+	}
+
+	result := NewDesktopApp().startDesktop()
+	if result.Error == "" {
+		t.Fatal("expected missing control UI build to stop desktop startup")
+	}
+	if !strings.Contains(result.Error, "control UI") {
+		t.Fatalf("expected control UI preflight error, got %q", result.Error)
+	}
+	if result.ConfigPath != configPath {
+		t.Fatalf("expected config path %q, got %q", configPath, result.ConfigPath)
+	}
+}
+
 func TestDerivePetStateUsesPendingApprovalSummary(t *testing.T) {
 	status := gatewayStatusResponse{}
 	status.Approvals.Pending = 1
