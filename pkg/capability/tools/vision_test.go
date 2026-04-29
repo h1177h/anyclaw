@@ -1,11 +1,76 @@
 package tools
 
 import (
+	"context"
 	"image"
 	"image/color"
+	"image/png"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	llm "github.com/1024XEngineer/anyclaw/pkg/capability/models"
 )
+
+type imageAnalyzeLLM struct {
+	calls int
+}
+
+func (s *imageAnalyzeLLM) Chat(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	s.calls++
+	return &llm.Response{Content: "vision ok"}, nil
+}
+
+func (s *imageAnalyzeLLM) StreamChat(context.Context, []llm.Message, []llm.ToolDefinition, func(string)) error {
+	return nil
+}
+
+func (s *imageAnalyzeLLM) Name() string {
+	return "vision-stub"
+}
+
+func TestImageAliasBlocksProtectedLocalPath(t *testing.T) {
+	workspace := t.TempDir()
+	protected := filepath.Join(t.TempDir(), "private")
+	if err := os.MkdirAll(protected, 0o755); err != nil {
+		t.Fatalf("mkdir protected: %v", err)
+	}
+	target := filepath.Join(protected, "secret.png")
+	writePNGFixture(t, target)
+
+	registry := NewRegistry()
+	RegisterBuiltins(registry, BuiltinOptions{
+		WorkingDir:     workspace,
+		ProtectedPaths: []string{protected},
+		LLMClient:      &imageAnalyzeLLM{},
+	})
+
+	_, err := registry.Call(context.Background(), "image", map[string]any{"path": target})
+	if err == nil || !strings.Contains(err.Error(), "protected path") {
+		t.Fatalf("expected protected path denial, got %v", err)
+	}
+}
+
+func TestImageAnalyzeRejectsNonImageLocalFile(t *testing.T) {
+	workspace := t.TempDir()
+	target := filepath.Join(workspace, "secret.png")
+	if err := os.WriteFile(target, []byte("plain text secret"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	client := &imageAnalyzeLLM{}
+
+	_, err := ImageAnalyzeTool(context.Background(), map[string]any{"path": target}, BuiltinOptions{
+		WorkingDir: workspace,
+		LLMClient:  client,
+	})
+	if err == nil || !strings.Contains(err.Error(), "image content") {
+		t.Fatalf("expected non-image content to be rejected, got %v", err)
+	}
+	if client.calls != 0 {
+		t.Fatalf("expected invalid image to be rejected before LLM call, got %d calls", client.calls)
+	}
+}
 
 func TestLocateTemplateFindsInsertedTemplate(t *testing.T) {
 	source := image.NewNRGBA(image.Rect(0, 0, 96, 72))
@@ -142,5 +207,19 @@ func drawInto(dst *image.NRGBA, src *image.NRGBA, offsetX int, offsetY int) {
 		for x := 0; x < src.Bounds().Dx(); x++ {
 			dst.Set(offsetX+x, offsetY+y, src.At(x, y))
 		}
+	}
+}
+
+func writePNGFixture(t *testing.T, path string) {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, 2, 2))
+	fillRect(img, img.Bounds(), color.NRGBA{R: 10, G: 20, B: 30, A: 255})
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create png fixture: %v", err)
+	}
+	defer file.Close()
+	if err := png.Encode(file, img); err != nil {
+		t.Fatalf("encode png fixture: %v", err)
 	}
 }

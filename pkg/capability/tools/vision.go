@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -21,6 +22,8 @@ import (
 
 	llm "github.com/1024XEngineer/anyclaw/pkg/capability/models"
 )
+
+const maxImageAnalyzeBytes = 20 * 1024 * 1024
 
 type imageMatchResult struct {
 	Found        bool             `json:"found"`
@@ -1111,27 +1114,14 @@ func ImageAnalyzeTool(ctx context.Context, input map[string]any, opts BuiltinOpt
 	var err error
 
 	if strings.TrimSpace(path) != "" {
-		imageData, err = os.ReadFile(strings.TrimSpace(path))
+		imageData, mimeType, path, err = readLocalImageForAnalyze(strings.TrimSpace(path), opts)
 		if err != nil {
-			return "", fmt.Errorf("read image: %w", err)
-		}
-		mimeType = mimeTypeFromPath(path)
-		if mimeType == "" {
-			mimeType = "image/jpeg"
+			return "", err
 		}
 	} else {
-		resp, err := http.Get(strings.TrimSpace(url))
+		imageData, mimeType, err = fetchImageForAnalyze(ctx, strings.TrimSpace(url))
 		if err != nil {
-			return "", fmt.Errorf("fetch image: %w", err)
-		}
-		defer resp.Body.Close()
-		imageData, err = io.ReadAll(io.LimitReader(resp.Body, 20*1024*1024))
-		if err != nil {
-			return "", fmt.Errorf("read image: %w", err)
-		}
-		mimeType = resp.Header.Get("Content-Type")
-		if mimeType == "" {
-			mimeType = "image/jpeg"
+			return "", err
 		}
 	}
 
@@ -1167,20 +1157,81 @@ func ImageAnalyzeTool(ctx context.Context, input map[string]any, opts BuiltinOpt
 	return string(payload), nil
 }
 
-func mimeTypeFromPath(path string) string {
-	ext := strings.ToLower(path)
-	switch {
-	case strings.HasSuffix(ext, ".jpg"), strings.HasSuffix(ext, ".jpeg"):
-		return "image/jpeg"
-	case strings.HasSuffix(ext, ".png"):
-		return "image/png"
-	case strings.HasSuffix(ext, ".gif"):
-		return "image/gif"
-	case strings.HasSuffix(ext, ".webp"):
-		return "image/webp"
-	case strings.HasSuffix(ext, ".bmp"):
-		return "image/bmp"
-	default:
-		return "image/jpeg"
+func readLocalImageForAnalyze(path string, opts BuiltinOptions) ([]byte, string, string, error) {
+	resolved := resolvePath(path, opts.WorkingDir)
+	if opts.Policy != nil {
+		if err := opts.Policy.CheckReadPath(resolved); err != nil {
+			return nil, "", "", err
+		}
+	} else if err := validateProtectedPath(resolved, opts.ProtectedPaths); err != nil {
+		return nil, "", "", err
 	}
+
+	file, err := os.Open(resolved)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("read image: %w", err)
+	}
+	defer file.Close()
+
+	data, err := readImageAnalyzeData(file)
+	if err != nil {
+		return nil, "", "", err
+	}
+	mimeType, err := validateImageAnalyzeContent(data)
+	if err != nil {
+		return nil, "", "", err
+	}
+	return data, mimeType, resolved, nil
+}
+
+func fetchImageForAnalyze(ctx context.Context, imageURL string) ([]byte, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("fetch image: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("fetch image: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, "", fmt.Errorf("fetch image: unexpected status %s", resp.Status)
+	}
+	data, err := readImageAnalyzeData(resp.Body)
+	if err != nil {
+		return nil, "", err
+	}
+	mimeType, err := validateImageAnalyzeContent(data)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, mimeType, nil
+}
+
+func readImageAnalyzeData(reader io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(reader, maxImageAnalyzeBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read image: %w", err)
+	}
+	if len(data) > maxImageAnalyzeBytes {
+		return nil, fmt.Errorf("image_analyze image exceeds %d byte limit", maxImageAnalyzeBytes)
+	}
+	return data, nil
+}
+
+func validateImageAnalyzeContent(data []byte) (string, error) {
+	if len(data) == 0 {
+		return "", fmt.Errorf("image_analyze requires non-empty image content")
+	}
+	mimeType := http.DetectContentType(data)
+	if !strings.HasPrefix(mimeType, "image/") {
+		return "", fmt.Errorf("image_analyze only accepts image content; detected %s", mimeType)
+	}
+	switch mimeType {
+	case "image/jpeg", "image/png", "image/gif":
+		if _, _, err := image.DecodeConfig(bytes.NewReader(data)); err != nil {
+			return "", fmt.Errorf("image_analyze invalid image content: %w", err)
+		}
+	}
+	return mimeType, nil
 }
