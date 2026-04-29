@@ -1,0 +1,70 @@
+node_modules
+.env
+dist
+coverage
+__pycache__/
+*.pyc
+.DS_Store
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# Agent credentials and memory (NEVER COMMIT)
+/memory/
+/.local/
+.agents/
+.agent/
+.claude/
+skills-lock.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+bin/
+.gstack/
+
+# Delegate LLM config (contains API keys)
+.anyclaw/delegate_config.json
+
+# Local config snapshots
+anyclaw.json
+anyclaw.json.bak-*
+
+# Local runtime state
+.anyclaw/
+workflows/memory/
+workflows/*/memory/
+pkg/runtime/workflows/*/memory/
+workflows/.anyclaw-bootstrap-state.json
+workflows/BOOTSTRAP.md
+gateway.log
+gateway.err
+anyclaw-final
+anyclaw-test
+anyclaw
+anyclaw.exe
+anyclaw-run.exe
+anyclaw-run.exe~
+
+# UI generated files
+ui/*.tsbuildinfo
+ui/vite.config.js
+ui/vite.config.d.ts
+ui/vitest.config.js
+ui/vitest.config.d.ts
+ui/tailwind.config.js
+ui/tailwind.config.d.ts
+ui/.vite/
+ui/.vite-temp/
