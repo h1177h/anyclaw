@@ -1,7 +1,9 @@
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$projectDir = Join-Path $repoRoot "cmd/anyclaw-desktop"
+$desktopProjectCandidates = @(
+  (Join-Path $repoRoot "cmd/anyclaw-desktop")
+)
 
 function Invoke-ExternalCommand {
   param(
@@ -30,6 +32,23 @@ function Get-GoBinDirectory {
   }
 
   return (Join-Path $goPath "bin")
+}
+
+function Resolve-DesktopProjectDirectory {
+  foreach ($candidate in $desktopProjectCandidates) {
+    if (Test-Path -LiteralPath $candidate -PathType Container) {
+      return $candidate
+    }
+  }
+
+  $relativeCandidates = $desktopProjectCandidates |
+    ForEach-Object { Resolve-Path -LiteralPath $_ -Relative -ErrorAction SilentlyContinue } |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+  if ($relativeCandidates.Count -eq 0) {
+    $relativeCandidates = @("cmd/anyclaw-desktop")
+  }
+
+  throw "Desktop app project not found. Expected one of: $($relativeCandidates -join ', '). Add the desktop app project before running this optional Wails build helper."
 }
 
 function Clear-BrokenProxyOverrides {
@@ -142,6 +161,8 @@ function Ensure-WailsBinary {
 
   return $wailsBinary
 }
+
+$projectDir = Resolve-DesktopProjectDirectory
 
 if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
   throw "Go was not found in PATH."
