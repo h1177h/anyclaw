@@ -363,7 +363,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           <Link
             className="shell-button h-12 justify-center px-5 text-sm font-medium"
             onClick={onClose}
-            to="/market"
+            to="/market?kind=skill"
           >
             <Plus size={16} strokeWidth={2.1} />
             <span>添加 Skill</span>

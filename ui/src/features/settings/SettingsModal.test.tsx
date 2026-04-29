@@ -215,7 +215,7 @@ describe("SettingsModal", () => {
     const view = renderWithClient(<SettingsModal onClose={onClose} />);
 
     const skillLink = screen.getByRole("link", { name: /添加 Skill/i });
-    expect(skillLink).toHaveAttribute("href", "/market");
+    expect(skillLink).toHaveAttribute("href", "/market?kind=skill");
 
     fireEvent.click(skillLink);
     expect(onClose).toHaveBeenCalledTimes(1);
