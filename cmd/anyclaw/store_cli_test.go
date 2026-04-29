@@ -1,7 +1,11 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -89,6 +93,131 @@ func TestRunStoreSourcesUsesConfiguredWorkDir(t *testing.T) {
 	if !strings.Contains(stdout, "Configured sources (1):") || !strings.Contains(stdout, "internal: https://market.example.test (http)") {
 		t.Fatalf("unexpected sources list output: %q", stdout)
 	}
+}
+
+func TestRunStoreCommandsUseConfiguredSources(t *testing.T) {
+	withStoreCLITempDir(t)
+
+	zipData := storeCLITestPluginZip(t)
+	serverURL := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		listing := plugin.PluginListing{
+			PluginID:    "remote-plugin",
+			Name:        "Remote Plugin",
+			Version:     "1.2.3",
+			Description: "Remote plugin from configured source",
+			Author:      "AnyClaw Test",
+			DownloadURL: serverURL + "/download/remote-plugin.zip",
+			Downloads:   42,
+			Tags:        []string{"remote", "test"},
+			TrustLevel:  "unsigned",
+		}
+		switch r.URL.Path {
+		case "/api/v1/plugins/search":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"plugins": []plugin.PluginListing{listing},
+				"total":   1,
+			})
+		case "/api/v1/plugins/remote-plugin":
+			_ = json.NewEncoder(w).Encode(listing)
+		case "/download/remote-plugin.zip":
+			w.Header().Set("Content-Type", "application/zip")
+			_, _ = w.Write(zipData)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	serverURL = server.URL
+
+	configDir := filepath.Join(t.TempDir(), "configs")
+	cfg := config.DefaultConfig()
+	cfg.Agent.WorkDir = filepath.Join("runtime", ".anyclaw")
+	cfg.Plugins.Dir = filepath.Join("custom", "plugins")
+	configPath := filepath.Join(configDir, "anyclaw.json")
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("Save config: %v", err)
+	}
+
+	if _, _, err := captureCLIOutput(t, func() error {
+		return runAnyClawCLI([]string{"store", "--config", configPath, "sources", "add", "internal", server.URL})
+	}); err != nil {
+		t.Fatalf("runAnyClawCLI store sources add: %v", err)
+	}
+
+	stdout, _, err := captureCLIOutput(t, func() error {
+		return runAnyClawCLI([]string{"store", "--config", configPath, "list"})
+	})
+	if err != nil {
+		t.Fatalf("runAnyClawCLI store list: %v", err)
+	}
+	if !strings.Contains(stdout, "Market plugins (1):") || !strings.Contains(stdout, "Remote Plugin") {
+		t.Fatalf("expected market source result in list output, got %q", stdout)
+	}
+
+	stdout, _, err = captureCLIOutput(t, func() error {
+		return runAnyClawCLI([]string{"store", "--config", configPath, "search", "remote"})
+	})
+	if err != nil {
+		t.Fatalf("runAnyClawCLI store search: %v", err)
+	}
+	if !strings.Contains(stdout, "Remote plugin from configured source") ||
+		!strings.Contains(stdout, "install: anyclaw store install remote-plugin") {
+		t.Fatalf("expected market source result in search output, got %q", stdout)
+	}
+
+	stdout, _, err = captureCLIOutput(t, func() error {
+		return runAnyClawCLI([]string{"store", "--config", configPath, "info", "remote-plugin"})
+	})
+	if err != nil {
+		t.Fatalf("runAnyClawCLI store info: %v", err)
+	}
+	if !strings.Contains(stdout, "id:          remote-plugin") ||
+		!strings.Contains(stdout, "Remote plugin from configured source") {
+		t.Fatalf("expected market source result in info output, got %q", stdout)
+	}
+
+	stdout, _, err = captureCLIOutput(t, func() error {
+		return runAnyClawCLI([]string{"store", "--config", configPath, "install", "remote-plugin"})
+	})
+	if err != nil {
+		t.Fatalf("runAnyClawCLI store install: %v", err)
+	}
+	if !strings.Contains(stdout, "Installed plugin: remote-plugin (1.2.3)") {
+		t.Fatalf("expected market plugin install output, got %q", stdout)
+	}
+	installedManifest := filepath.Join(configDir, "custom", "plugins", "remote-plugin", "plugin.json")
+	if _, err := os.Stat(installedManifest); err != nil {
+		t.Fatalf("expected installed plugin manifest under configured plugin dir: %v", err)
+	}
+}
+
+func storeCLITestPluginZip(t *testing.T) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	file, err := zw.Create("plugin.json")
+	if err != nil {
+		t.Fatalf("Create plugin.json in zip: %v", err)
+	}
+	manifest := plugin.Manifest{
+		Name:        "remote-plugin",
+		Version:     "1.2.3",
+		Description: "Remote plugin from configured source",
+		Kinds:       []string{"tool"},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("Marshal plugin manifest: %v", err)
+	}
+	if _, err := file.Write(data); err != nil {
+		t.Fatalf("Write plugin manifest to zip: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("Close zip writer: %v", err)
+	}
+	return buf.Bytes()
 }
 
 func TestRunStoreListPrintsBuiltinPackages(t *testing.T) {
