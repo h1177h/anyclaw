@@ -34,9 +34,9 @@ const (
 	desktopWindowMinWidth      = 1080
 	desktopWindowMinHeight     = 720
 
-	desktopPetWidth     = 320
-	desktopPetHeight    = 92
-	desktopPetTopOffset = 18
+	desktopIslandWidth     = 388
+	desktopIslandHeight    = 110
+	desktopIslandTopOffset = 0
 )
 
 var runDesktopControlUIBuild = func(ctx context.Context, repoRoot string) error {
@@ -70,15 +70,20 @@ type windowBounds struct {
 	Height int
 }
 
-type PetSnapshot struct {
-	Mode         string `json:"mode"`
-	State        string `json:"state"`
-	Label        string `json:"label"`
-	Detail       string `json:"detail"`
-	DashboardURL string `json:"dashboardUrl,omitempty"`
-	LastEvent    string `json:"lastEvent,omitempty"`
-	UpdatedAt    string `json:"updatedAt,omitempty"`
-	Error        string `json:"error,omitempty"`
+type IslandSnapshot struct {
+	Mode             string `json:"mode"`
+	State            string `json:"state"`
+	Label            string `json:"label"`
+	Detail           string `json:"detail"`
+	Provider         string `json:"provider,omitempty"`
+	Model            string `json:"model,omitempty"`
+	ActiveTasks      int    `json:"activeTasks"`
+	ActiveSessions   int    `json:"activeSessions"`
+	PendingApprovals int    `json:"pendingApprovals"`
+	DashboardURL     string `json:"dashboardUrl,omitempty"`
+	LastEvent        string `json:"lastEvent,omitempty"`
+	UpdatedAt        string `json:"updatedAt,omitempty"`
+	Error            string `json:"error,omitempty"`
 }
 
 type gatewayStatusResponse struct {
@@ -125,7 +130,7 @@ type DesktopApp struct {
 	gatewayCancel context.CancelFunc
 	configPath    string
 	bundleRoot    string
-	petMode       bool
+	islandMode    bool
 	normalBounds  windowBounds
 	hasBounds     bool
 }
@@ -194,13 +199,13 @@ func (a *DesktopApp) Close() {
 	wailsruntime.Quit(a.ctx)
 }
 
-func (a *DesktopApp) EnterPetMode() error {
+func (a *DesktopApp) EnterIslandMode() error {
 	if a.ctx == nil {
 		return errors.New("desktop runtime is not ready")
 	}
 
 	a.mu.Lock()
-	if !a.petMode {
+	if !a.islandMode {
 		x, y := wailsruntime.WindowGetPosition(a.ctx)
 		width, height := wailsruntime.WindowGetSize(a.ctx)
 		a.normalBounds = windowBounds{
@@ -211,20 +216,20 @@ func (a *DesktopApp) EnterPetMode() error {
 		}
 		a.hasBounds = width > 0 && height > 0
 	}
-	a.petMode = true
+	a.islandMode = true
 	a.mu.Unlock()
 
 	wailsruntime.WindowSetAlwaysOnTop(a.ctx, true)
-	wailsruntime.WindowSetMinSize(a.ctx, desktopPetWidth, desktopPetHeight)
-	wailsruntime.WindowSetSize(a.ctx, desktopPetWidth, desktopPetHeight)
-	x, y := a.petWindowPosition()
+	wailsruntime.WindowSetMinSize(a.ctx, desktopIslandWidth, desktopIslandHeight)
+	wailsruntime.WindowSetSize(a.ctx, desktopIslandWidth, desktopIslandHeight)
+	x, y := a.islandWindowPosition()
 	wailsruntime.WindowSetPosition(a.ctx, x, y)
 	wailsruntime.WindowShow(a.ctx)
 	wailsruntime.WindowUnminimise(a.ctx)
 	return nil
 }
 
-func (a *DesktopApp) ExitPetMode() error {
+func (a *DesktopApp) ExitIslandMode() error {
 	if a.ctx == nil {
 		return errors.New("desktop runtime is not ready")
 	}
@@ -232,7 +237,7 @@ func (a *DesktopApp) ExitPetMode() error {
 	a.mu.Lock()
 	bounds := a.normalBounds
 	hasBounds := a.hasBounds
-	a.petMode = false
+	a.islandMode = false
 	a.mu.Unlock()
 
 	if !hasBounds || bounds.Width <= 0 || bounds.Height <= 0 {
@@ -253,11 +258,11 @@ func (a *DesktopApp) ExitPetMode() error {
 	return nil
 }
 
-func (a *DesktopApp) PetSnapshot() PetSnapshot {
+func (a *DesktopApp) IslandSnapshot() IslandSnapshot {
 	mode := "normal"
 	a.mu.Lock()
-	if a.petMode {
-		mode = "pet"
+	if a.islandMode {
+		mode = "island"
 	}
 	configPath := a.configPath
 	bundleRoot := a.bundleRoot
@@ -268,7 +273,7 @@ func (a *DesktopApp) PetSnapshot() PetSnapshot {
 		configPath = resolveDesktopConfigPath(bundleRoot)
 	}
 
-	snapshot := PetSnapshot{
+	snapshot := IslandSnapshot{
 		Mode:      mode,
 		State:     "booting",
 		Label:     "正在启动",
@@ -318,7 +323,13 @@ func (a *DesktopApp) PetSnapshot() PetSnapshot {
 		}
 	}
 
-	state, label, detail, lastEvent := derivePetState(status, events, approvals)
+	snapshot.Provider = strings.TrimSpace(status.Status.Provider)
+	snapshot.Model = strings.TrimSpace(status.Status.Model)
+	snapshot.ActiveTasks = status.Runtime.Active
+	snapshot.ActiveSessions = status.Typing.ActiveSessions
+	snapshot.PendingApprovals = status.Approvals.Pending
+
+	state, label, detail, lastEvent := deriveIslandState(status, events, approvals)
 	snapshot.State = state
 	snapshot.Label = label
 	snapshot.Detail = detail
@@ -420,7 +431,7 @@ func (a *DesktopApp) stopGateway() {
 	a.cached = LaunchResult{}
 	a.configPath = ""
 	a.bundleRoot = ""
-	a.petMode = false
+	a.islandMode = false
 	a.mu.Unlock()
 
 	if cancel != nil {
@@ -753,9 +764,9 @@ func gatewayBaseURL(cfg *config.Config) string {
 	return "http://" + net.JoinHostPort(host, fmt.Sprintf("%d", port))
 }
 
-func (a *DesktopApp) petWindowPosition() (int, int) {
+func (a *DesktopApp) islandWindowPosition() (int, int) {
 	if a.ctx == nil {
-		return 32, desktopPetTopOffset
+		return 32, desktopIslandTopOffset
 	}
 
 	screenWidth := 1440
@@ -771,11 +782,11 @@ func (a *DesktopApp) petWindowPosition() (int, int) {
 		}
 	}
 
-	x := (screenWidth - desktopPetWidth) / 2
+	x := (screenWidth - desktopIslandWidth) / 2
 	if x < 24 {
 		x = 24
 	}
-	return x, desktopPetTopOffset
+	return x, desktopIslandTopOffset
 }
 
 func controlUIURL(cfg *config.Config) string {
@@ -878,7 +889,7 @@ func doGatewayJSONRequest(ctx context.Context, cfg *config.Config, method string
 	return json.NewDecoder(resp.Body).Decode(responseBody)
 }
 
-func derivePetState(status gatewayStatusResponse, events []gatewayEvent, approvals []gatewayApproval) (string, string, string, string) {
+func deriveIslandState(status gatewayStatusResponse, events []gatewayEvent, approvals []gatewayApproval) (string, string, string, string) {
 	lastType := ""
 	lastAt := time.Time{}
 	if len(events) > 0 {
@@ -898,11 +909,11 @@ func derivePetState(status gatewayStatusResponse, events []gatewayEvent, approva
 		return "waiting", "等待确认", detail, lastType
 	case status.Runtime.Active > 0:
 		if lastType == "tool.activity" || strings.HasPrefix(lastType, "task.") {
-			return "executing", "正在执行", "桌宠正在调用工具处理任务", lastType
+			return "executing", "正在执行", "灵动岛正在显示工具活动", lastType
 		}
-		return "thinking", "正在思考", "桌宠正在整理上下文并生成回复", lastType
+		return "thinking", "正在思考", "正在整理上下文并生成回复", lastType
 	case status.Typing.ActiveSessions > 0:
-		return "thinking", "正在思考", "桌宠正在继续当前对话", lastType
+		return "thinking", "正在思考", "正在继续当前对话", lastType
 	case recentEvent(lastType, lastAt, 8*time.Second, "chat.failed", "tts.process.error", "stt.init.error", "tts.init.error"):
 		return "error", "出了点问题", "最近一次执行出现异常", lastType
 	case recentEvent(lastType, lastAt, 5*time.Second, "chat.completed", "task.completed", "approval.resolved"):

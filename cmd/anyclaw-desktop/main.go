@@ -22,14 +22,17 @@ func main() {
 		MinWidth:         desktopWindowMinWidth,
 		MinHeight:        desktopWindowMinHeight,
 		Frameless:        true,
-		BackgroundColour: options.NewRGB(255, 255, 255),
+		BackgroundColour: options.NewRGBA(0, 0, 0, 0),
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
 		OnStartup:  app.startup,
 		OnShutdown: app.shutdown,
 		Windows: &windows.Options{
-			DisableWindowIcon: false,
+			DisableWindowIcon:                 false,
+			WebviewIsTransparent:              true,
+			WindowIsTranslucent:               true,
+			DisableFramelessWindowDecorations: true,
 		},
 		Bind: []interface{}{
 			app,

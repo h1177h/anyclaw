@@ -100,6 +100,23 @@ pnpm run ui:test
 pnpm run ui:preview
 ```
 
+## Launch the Desktop Shell on Windows
+
+Double-click `AnyClaw Desktop.cmd` from the repository root.
+
+The launcher starts `cmd/anyclaw-desktop/build/bin/anyclaw-desktop.exe` when it
+already exists. If the executable is missing, it runs `scripts/build-desktop.ps1`
+first, then starts the desktop shell. Build and launch output is written to
+`.anyclaw/logs/desktop-launch.log`.
+
+Command-line equivalents:
+
+```powershell
+pnpm run desktop:start
+pnpm run desktop:build
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-desktop.ps1 -Rebuild
+```
+
 ## Run the Gateway Locally
 
 Start the gateway in the foreground:
