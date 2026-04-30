@@ -383,6 +383,41 @@ func (sa *SubAgent) Skills() []string {
 	return names
 }
 
+func (sa *SubAgent) Tools() []string {
+	if sa.tools == nil {
+		return nil
+	}
+	list := sa.tools.ListForRole(true)
+	names := make([]string, 0, len(list))
+	for _, tool := range list {
+		if strings.TrimSpace(tool.Name) != "" {
+			names = append(names, tool.Name)
+		}
+	}
+	return names
+}
+
+func (sa *SubAgent) ToolCategories() []string {
+	if sa.tools == nil {
+		return nil
+	}
+	list := sa.tools.ListForRole(true)
+	seen := make(map[string]struct{}, len(list))
+	categories := make([]string, 0)
+	for _, tool := range list {
+		category := strings.TrimSpace(string(tool.Category))
+		if category == "" {
+			continue
+		}
+		if _, ok := seen[category]; ok {
+			continue
+		}
+		seen[category] = struct{}{}
+		categories = append(categories, category)
+	}
+	return categories
+}
+
 func (sa *SubAgent) PermissionLevel() string {
 	return sa.definition.PermissionLevel
 }
@@ -466,6 +501,8 @@ type AgentInfo struct {
 	Domain            string   `json:"domain,omitempty"`
 	Expertise         []string `json:"expertise,omitempty"`
 	Skills            []string `json:"skills,omitempty"`
+	Tools             []string `json:"tools,omitempty"`
+	ToolCategories    []string `json:"tool_categories,omitempty"`
 	PermissionLevel   string   `json:"permission_level,omitempty"`
 	LLMProvider       string   `json:"llm_provider,omitempty"`
 	LLMModel          string   `json:"llm_model,omitempty"`
@@ -574,6 +611,8 @@ func (p *AgentPool) ListInfos() []AgentInfo {
 			Domain:            sa.Domain(),
 			Expertise:         sa.Expertise(),
 			Skills:            sa.Skills(),
+			Tools:             sa.Tools(),
+			ToolCategories:    sa.ToolCategories(),
 			PermissionLevel:   sa.PermissionLevel(),
 			LLMProvider:       sa.definition.LLMProvider,
 			LLMModel:          sa.definition.LLMModel,

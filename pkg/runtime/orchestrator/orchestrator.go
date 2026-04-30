@@ -233,11 +233,14 @@ func (o *Orchestrator) runTaskResult(ctx context.Context, input string, agentNam
 	capabilities := make([]AgentCapability, len(agents))
 	for i, sa := range agents {
 		capabilities[i] = AgentCapability{
-			Name:        sa.Name(),
-			Description: sa.Description(),
-			Domain:      sa.Domain(),
-			Expertise:   sa.Expertise(),
-			Skills:      sa.Skills(),
+			Name:            sa.Name(),
+			Description:     sa.Description(),
+			Domain:          sa.Domain(),
+			Expertise:       sa.Expertise(),
+			Skills:          sa.Skills(),
+			Tools:           sa.Tools(),
+			ToolCategories:  sa.ToolCategories(),
+			PermissionLevel: sa.PermissionLevel(),
 		}
 	}
 
@@ -262,7 +265,7 @@ func (o *Orchestrator) runTaskResult(ctx context.Context, input string, agentNam
 
 	exec.Log("info", fmt.Sprintf("plan ready: %s (%d sub-tasks)", plan.Summary, len(plan.SubTasks)), "", exec.id)
 	for _, st := range plan.SubTasks {
-		exec.Log("info", fmt.Sprintf("[%d] %s -> %s deps=%v", st.Index+1, st.Title, st.AssignedAgent, st.DependsOn), st.AssignedAgent, st.ID)
+		exec.Log("info", fmt.Sprintf("[%d] %s -> %s score=%d confidence=%.2f reason=%s deps=%v", st.Index+1, st.Title, st.AssignedAgent, st.AssignmentScore, st.AssignmentConfidence, st.AssignmentReason, st.DependsOn), st.AssignedAgent, st.ID)
 	}
 
 	exec.queue.Load(plan)
@@ -378,16 +381,24 @@ func (o *Orchestrator) buildPlan(ctx context.Context, taskID string, input strin
 	if o.decomposer != nil {
 		return o.decomposer.defaultDecompose(taskID, input, capabilities), nil
 	}
+	assignment := bestAgentAssignment(input, capabilities)
+	if assignment.Name == "" {
+		assignment.Name = capabilities[0].Name
+	}
 	return &DecompositionPlan{
-		Summary: fmt.Sprintf("Delegate the task to %s for execution", capabilities[0].Name),
+		Summary: fmt.Sprintf("Delegate the task to %s for execution", assignment.Name),
 		SubTasks: []SubTask{{
-			ID:            fmt.Sprintf("%s_sub_0", taskID),
-			Title:         "Execute task",
-			Description:   input,
-			AssignedAgent: capabilities[0].Name,
-			Input:         input,
-			Status:        SubTaskReady,
-			Index:         0,
+			ID:                   fmt.Sprintf("%s_sub_0", taskID),
+			Title:                "Execute task",
+			Description:          input,
+			AssignedAgent:        assignment.Name,
+			Input:                input,
+			Status:               SubTaskReady,
+			Index:                0,
+			AssignmentReason:     assignment.Reason,
+			AssignmentScore:      assignment.Score,
+			AssignmentConfidence: assignment.Confidence,
+			RequiredCapabilities: assignment.RequiredCaps,
 		}},
 	}, nil
 }

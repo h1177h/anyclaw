@@ -407,6 +407,8 @@ type ToolInfo struct {
 	Name             string
 	Description      string
 	InputSchema      map[string]any
+	Category         ToolCategory
+	AccessLevel      ToolAccessLevel
 	Visibility       ToolVisibility
 	CachePolicy      ToolCachePolicy
 	RequiresApproval bool
@@ -431,6 +433,8 @@ func (r *Registry) ListForRole(isSubAgent bool) []ToolInfo {
 			Name:             t.Name,
 			Description:      t.Description,
 			InputSchema:      t.InputSchema,
+			Category:         t.Category,
+			AccessLevel:      t.AccessLevel,
 			Visibility:       t.Visibility,
 			CachePolicy:      t.CachePolicy,
 			RequiresApproval: t.RequiresApproval,

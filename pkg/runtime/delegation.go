@@ -58,14 +58,23 @@ func (s *DelegationService) Delegate(ctx context.Context, req DelegationRequest)
 		ErrorSummary:    errorSummary,
 		Stats:           result.Stats,
 		SubTasks:        result.SubTasks,
+		SelectionMode:   runtimedelegation.NormalizeSelectionMode(req.SelectionMode),
 	}, nil
 }
 
 func (s *DelegationService) runDelegation(ctx context.Context, req DelegationRequest, brief string) (*orchestrator.OrchestratorResult, []string, error) {
 	selectedAgents := runtimedelegation.NormalizeNames(req.AgentNames)
+	selectionMode := runtimedelegation.NormalizeSelectionMode(req.SelectionMode)
+	if selectionMode == runtimedelegation.SelectionModeExplicit && len(selectedAgents) == 0 {
+		return nil, nil, fmt.Errorf("selection_mode explicit requires at least one agent name")
+	}
 	if len(selectedAgents) > 1 {
 		result, err := s.mainRuntime.Orchestrator.RunPlan(ctx, brief, selectedAgents)
 		return result, selectedAgents, err
+	}
+	if selectionMode == runtimedelegation.SelectionModeAuto && len(selectedAgents) == 0 && len(s.mainRuntime.Orchestrator.AvailableAgentNames()) > 0 {
+		result, err := s.mainRuntime.Orchestrator.RunTaskResult(ctx, brief, nil)
+		return result, selectedAgentsFromResult(result, ""), err
 	}
 
 	handoffPlan := s.resolveDelegationRoute(req, selectedAgents)
@@ -162,6 +171,11 @@ func registerDelegationTool(mainRuntime *MainRuntime) {
 					"description": "Optional explicit sub-agent names to use for this delegation.",
 					"items":       map[string]string{"type": "string"},
 				},
+				"selection_mode": map[string]any{
+					"type":        "string",
+					"description": "Sub-agent selection mode: conservative (default), auto, or explicit.",
+					"enum":        []string{"conservative", "auto", "explicit"},
+				},
 				"reason": map[string]any{
 					"type":        "string",
 					"description": "Why delegation is useful for this sub-task.",
@@ -193,6 +207,7 @@ func registerDelegationTool(mainRuntime *MainRuntime) {
 			req := DelegationRequest{
 				Task:            runtimedelegation.StringFromAny(input["task"]),
 				AgentNames:      runtimedelegation.StringSliceFromAny(input["agent_names"]),
+				SelectionMode:   runtimedelegation.StringFromAny(input["selection_mode"]),
 				Reason:          runtimedelegation.StringFromAny(input["reason"]),
 				SuccessCriteria: runtimedelegation.StringFromAny(input["success_criteria"]),
 				UserContext:     runtimedelegation.StringFromAny(input["user_context"]),
