@@ -166,11 +166,11 @@ func TestStartDesktopPreflightsMissingControlUI(t *testing.T) {
 	}
 }
 
-func TestDerivePetStateUsesPendingApprovalSummary(t *testing.T) {
+func TestDeriveIslandStateUsesPendingApprovalSummary(t *testing.T) {
 	status := gatewayStatusResponse{}
 	status.Approvals.Pending = 1
 
-	state, label, detail, lastEvent := derivePetState(status, nil, []gatewayApproval{
+	state, label, detail, lastEvent := deriveIslandState(status, nil, []gatewayApproval{
 		{
 			Status: "pending",
 			Payload: map[string]any{

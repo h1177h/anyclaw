@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -7,19 +7,19 @@
     <style>
       :root {
         color-scheme: light;
-        --bg: #f4f7fb;
-        --surface: rgba(255, 255, 255, 0.96);
-        --border: rgba(15, 23, 42, 0.08);
-        --border-strong: rgba(15, 23, 42, 0.14);
+        --bg-0: #eef4ff;
+        --bg-1: #f8fbff;
+        --panel-border: rgba(15, 23, 42, 0.08);
+        --panel-border-strong: rgba(15, 23, 42, 0.14);
         --text: #0f172a;
         --muted: #64748b;
-        --muted-strong: #475569;
-        --accent: #06b6d4;
-        --accent-strong: #0f766e;
+        --muted-strong: #334155;
+        --accent: #0ea5e9;
+        --accent-strong: #0369a1;
         --warm: #f59e0b;
-        --success: #10b981;
+        --good: #22c55e;
         --danger: #ef4444;
-        --shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+        --shadow: 0 28px 80px rgba(15, 23, 42, 0.16);
       }
 
       * {
@@ -29,20 +29,24 @@
       html,
       body {
         margin: 0;
-        min-height: 100%;
+        width: 100%;
+        height: 100%;
         overflow: hidden;
-        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        font-family: "SF Pro Display", "Segoe UI Variable Text", "PingFang SC", "Microsoft YaHei", sans-serif;
         color: var(--text);
         background:
-          radial-gradient(circle at top left, rgba(6, 182, 212, 0.1), transparent 28%),
-          linear-gradient(180deg, #fbfdff 0%, var(--bg) 100%);
+          radial-gradient(circle at top left, rgba(14, 165, 233, 0.12), transparent 28%),
+          radial-gradient(circle at top right, rgba(56, 189, 248, 0.08), transparent 24%),
+          linear-gradient(180deg, #fbfdff 0%, var(--bg-0) 46%, var(--bg-1) 100%);
       }
 
-      body[data-mode="pet"] {
-        background:
-          radial-gradient(circle at top, rgba(6, 182, 212, 0.08), transparent 48%),
-          linear-gradient(180deg, #fcfeff 0%, #f3f7fb 100%);
-        border-radius: 999px;
+      html[data-mode="island"],
+      body[data-mode="island"] {
+        background: transparent !important;
+      }
+
+      body {
+        user-select: none;
       }
 
       button {
@@ -56,31 +60,50 @@
       .app {
         width: 100vw;
         height: 100vh;
+        padding: 14px;
+      }
+
+      body[data-mode="island"] .app {
+        padding: 0;
+        background: transparent !important;
       }
 
       .window-shell {
         width: 100%;
         height: 100%;
-        display: grid;
-        grid-template-rows: 72px 1fr;
-        transition: opacity 180ms ease, transform 180ms ease;
       }
 
-      body[data-mode="pet"] .window-shell {
-        opacity: 0;
-        pointer-events: none;
-        transform: scale(0.985);
+      body[data-mode="island"] .window-shell {
+        display: none;
+      }
+
+      .window-panel {
+        width: 100%;
+        height: 100%;
+        display: grid;
+        grid-template-rows: 82px 1fr;
+        border-radius: 30px;
+        overflow: hidden;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 251, 255, 0.9)),
+          rgba(255, 255, 255, 0.86);
+        border: 1px solid rgba(255, 255, 255, 0.72);
+        box-shadow:
+          0 32px 100px rgba(15, 23, 42, 0.14),
+          inset 0 1px 0 rgba(255, 255, 255, 0.66);
+        backdrop-filter: blur(20px);
       }
 
       .titlebar {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 16px;
-        padding: 14px 20px;
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(249, 251, 255, 0.92));
-        border-bottom: 1px solid var(--border);
-        box-shadow: 0 6px 20px rgba(15, 23, 42, 0.04);
+        gap: 18px;
+        padding: 16px 22px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(247, 250, 255, 0.88)),
+          rgba(255, 255, 255, 0.9);
+        border-bottom: 1px solid var(--panel-border);
         -webkit-app-region: drag;
         --wails-draggable: drag;
       }
@@ -92,13 +115,13 @@
       .title-copy strong {
         display: block;
         font-size: 16px;
-        font-weight: 700;
-        letter-spacing: -0.02em;
+        font-weight: 680;
+        letter-spacing: -0.03em;
       }
 
       .title-copy span {
         display: block;
-        margin-top: 4px;
+        margin-top: 5px;
         color: var(--muted);
         font-size: 12px;
       }
@@ -106,11 +129,11 @@
       .header-status {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
+        gap: 9px;
+        padding: 9px 14px;
         border-radius: 999px;
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.76);
+        background: rgba(255, 255, 255, 0.78);
+        border: 1px solid var(--panel-border);
         color: var(--muted-strong);
         font-size: 13px;
         font-weight: 600;
@@ -118,46 +141,46 @@
       }
 
       .status-dot {
-        width: 9px;
-        height: 9px;
+        width: 10px;
+        height: 10px;
         border-radius: 999px;
-        background: var(--success);
-        box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.12);
+        background: var(--good);
+        box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.14);
       }
 
       .status-dot[data-state="booting"] {
-        background: #38bdf8;
-        box-shadow: 0 0 0 6px rgba(56, 189, 248, 0.12);
+        background: #4cc9ff;
+        box-shadow: 0 0 0 6px rgba(76, 201, 255, 0.14);
       }
 
       .status-dot[data-state="offline"] {
         background: #94a3b8;
-        box-shadow: 0 0 0 6px rgba(148, 163, 184, 0.12);
+        box-shadow: 0 0 0 6px rgba(148, 163, 184, 0.14);
       }
 
       .status-dot[data-state="thinking"] {
         background: var(--warm);
-        box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.14);
+        box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.16);
       }
 
       .status-dot[data-state="executing"] {
         background: var(--accent);
-        box-shadow: 0 0 0 6px rgba(6, 182, 212, 0.14);
+        box-shadow: 0 0 0 6px rgba(14, 165, 233, 0.14);
       }
 
       .status-dot[data-state="waiting"] {
         background: #fb923c;
-        box-shadow: 0 0 0 6px rgba(251, 146, 60, 0.12);
+        box-shadow: 0 0 0 6px rgba(251, 146, 60, 0.16);
       }
 
       .status-dot[data-state="complete"] {
-        background: #22c55e;
-        box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.12);
+        background: var(--good);
+        box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.16);
       }
 
       .status-dot[data-state="error"] {
         background: var(--danger);
-        box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.12);
+        box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.16);
       }
 
       .title-actions {
@@ -171,30 +194,31 @@
       .action-btn {
         padding: 12px 16px;
         border-radius: 16px;
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.86);
+        border: 1px solid var(--panel-border);
+        background: rgba(255, 255, 255, 0.84);
         color: var(--muted-strong);
-        font-weight: 600;
+        font-weight: 620;
         transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease, background 140ms ease;
       }
 
       .action-btn:hover {
         transform: translateY(-1px);
         background: #ffffff;
-        border-color: var(--border-strong);
-        box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+        border-color: var(--panel-border-strong);
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
       }
 
       .action-btn.primary {
-        background: linear-gradient(135deg, #effbff 0%, #ecfeff 100%);
+        background: linear-gradient(135deg, #e8f7ff 0%, #f0fbff 100%);
         color: var(--accent-strong);
-        border-color: rgba(6, 182, 212, 0.18);
+        border-color: rgba(14, 165, 233, 0.18);
       }
 
       .dashboard-shell {
         position: relative;
-        overflow: hidden;
-        background: #f8fafc;
+        background:
+          radial-gradient(circle at top, rgba(14, 165, 233, 0.06), transparent 32%),
+          linear-gradient(180deg, #f8fbff 0%, #f2f7fd 100%);
       }
 
       iframe {
@@ -213,8 +237,8 @@
         justify-content: center;
         padding: 32px;
         background:
-          radial-gradient(circle at top, rgba(6, 182, 212, 0.08), transparent 34%),
-          linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(244, 247, 252, 0.98));
+          radial-gradient(circle at top, rgba(14, 165, 233, 0.09), transparent 34%),
+          linear-gradient(180deg, rgba(249, 252, 255, 0.94), rgba(242, 247, 253, 0.96));
       }
 
       .boot-overlay[hidden] {
@@ -222,64 +246,63 @@
       }
 
       .boot-card {
-        width: min(760px, 100%);
-        padding: 34px;
-        border-radius: 30px;
-        background: rgba(255, 255, 255, 0.94);
-        border: 1px solid var(--border);
+        width: min(560px, 100%);
+        padding: 30px;
+        border-radius: 28px;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.82);
         box-shadow: var(--shadow);
-        backdrop-filter: blur(16px);
+        backdrop-filter: blur(18px);
       }
 
       .boot-card h1 {
         margin: 0;
-        font-size: clamp(30px, 4vw, 46px);
-        line-height: 1.06;
-        letter-spacing: -0.04em;
+        font-size: 28px;
+        font-weight: 720;
+        letter-spacing: -0.05em;
       }
 
       .boot-card p {
         margin: 12px 0 0;
-        color: var(--muted);
-        line-height: 1.72;
+        color: var(--muted-strong);
+        font-size: 15px;
+        line-height: 1.6;
       }
 
       .boot-progress {
+        margin-top: 20px;
         height: 10px;
-        margin-top: 24px;
         border-radius: 999px;
         overflow: hidden;
-        background: rgba(148, 163, 184, 0.18);
+        background: rgba(148, 163, 184, 0.2);
       }
 
-      .boot-progress > span {
+      .boot-progress span {
         display: block;
-        width: 34%;
+        width: 45%;
         height: 100%;
         border-radius: inherit;
-        background: linear-gradient(90deg, #67e8f9 0%, #06b6d4 45%, #7dd3fc 100%);
-        animation: loading 1.15s ease-in-out infinite;
+        background: linear-gradient(90deg, #38bdf8, #0ea5e9, #67e8f9);
+        animation: progress-slide 1.3s ease-in-out infinite;
       }
 
       .boot-meta {
-        margin-top: 14px;
-        color: #7c8da3;
+        margin-top: 16px;
+        color: var(--muted);
         font-size: 13px;
+        line-height: 1.6;
       }
 
       .boot-detail {
-        margin-top: 16px;
-        padding: 13px 14px;
-        border-radius: 16px;
-        border: 1px solid rgba(15, 23, 42, 0.06);
-        background: rgba(248, 250, 252, 0.9);
-        color: #334155;
-        font: 13px/1.55 "Cascadia Code", "Consolas", monospace;
+        margin: 18px 0 0;
+        padding: 15px 16px;
+        border-radius: 18px;
+        background: rgba(15, 23, 42, 0.06);
+        color: var(--text);
+        font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+        font-size: 12px;
         white-space: pre-wrap;
-      }
-
-      .boot-detail[hidden] {
-        display: none;
+        word-break: break-word;
       }
 
       .boot-actions {
@@ -288,765 +311,439 @@
         margin-top: 18px;
       }
 
-      .boot-actions[hidden] {
-        display: none;
-      }
       .island-shell {
-        position: fixed;
-        inset: 0;
         display: none;
       }
 
-      body[data-mode="pet"] .island-shell {
-        display: block;
-      }
-
-      .island-card {
-        position: relative;
+      body[data-mode="island"] .island-shell {
         width: 100%;
         height: 100%;
         display: flex;
-        align-items: center;
-        gap: 14px;
-        padding: 14px 18px;
-        border-radius: 999px;
-        border: 1px solid rgba(15, 23, 42, 0.08);
+        align-items: flex-start;
+        justify-content: center;
+        padding-top: 0;
+        pointer-events: none;
+      }
+
+      body[data-mode="island"] .island-shell > * {
+        pointer-events: auto;
+      }
+
+      .island-frame {
+        width: min(388px, calc(100vw - 4px));
+        height: 106px;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        overflow: visible;
+      }
+
+      .island-card {
+        --state-accent: #f8fafc;
+        position: relative;
+        width: 168px;
+        height: 31px;
+        padding: 0 13px;
+        border-radius: 0 0 16px 16px;
         background:
-          radial-gradient(circle at 16% 12%, rgba(255, 255, 255, 0.75), transparent 24%),
-          linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+          linear-gradient(180deg, rgba(15, 15, 17, 0.995), rgba(2, 2, 3, 1)),
+          #000000;
+        color: #ffffff;
+        overflow: hidden;
+        cursor: pointer;
+        transform-origin: center top;
+        transform: translateY(0) scale(0.98);
+        will-change: width, height, border-radius, transform;
         box-shadow:
-          0 18px 40px rgba(15, 23, 42, 0.12),
-          inset 0 0 0 1px rgba(255, 255, 255, 0.72);
+          0 8px 18px rgba(0, 0, 0, 0.16),
+          inset 0 -1px 0 rgba(255, 255, 255, 0.03);
+        transition:
+          width 360ms cubic-bezier(0.2, 0.92, 0.28, 1),
+          height 360ms cubic-bezier(0.2, 0.92, 0.28, 1),
+          border-radius 360ms cubic-bezier(0.2, 0.92, 0.28, 1),
+          transform 360ms cubic-bezier(0.16, 1.12, 0.3, 1),
+          box-shadow 180ms ease;
         -webkit-app-region: drag;
         --wails-draggable: drag;
-        user-select: none;
-        cursor: grab;
-        overflow: hidden;
-        --state-glow: rgba(6, 182, 212, 0.22);
-        --state-chip: rgba(6, 182, 212, 0.12);
-        --state-ink: #0f766e;
       }
 
-      .island-card:active {
-        cursor: grabbing;
-      }
-
-      .island-card::after {
+      .island-card::before {
         content: "";
         position: absolute;
-        right: -18px;
-        bottom: -28px;
-        width: 120px;
-        height: 120px;
-        border-radius: 999px;
-        background: radial-gradient(circle, var(--state-glow) 0%, transparent 70%);
-        opacity: 0.5;
+        inset: 0 0 auto 0;
+        height: 1px;
+        background: rgba(255, 255, 255, 0.06);
         pointer-events: none;
+      }
+
+      .island-card[data-expanded="true"] {
+        width: min(372px, calc(100vw - 16px));
+        height: 90px;
+        padding: 10px 14px 8px;
+        border-radius: 0 0 24px 24px;
+        transform: translateY(0) scale(1);
+        box-shadow:
+          0 10px 22px rgba(0, 0, 0, 0.18),
+          inset 0 -1px 0 rgba(255, 255, 255, 0.03);
       }
 
       .island-card[data-state="booting"] {
-        --state-glow: rgba(56, 189, 248, 0.2);
-        --state-chip: rgba(56, 189, 248, 0.12);
-        --state-ink: #0369a1;
+        --state-accent: #58d3ff;
       }
 
       .island-card[data-state="offline"] {
-        --state-glow: rgba(148, 163, 184, 0.18);
-        --state-chip: rgba(148, 163, 184, 0.12);
-        --state-ink: #475569;
+        --state-accent: #94a3b8;
       }
 
       .island-card[data-state="thinking"] {
-        --state-glow: rgba(245, 158, 11, 0.22);
-        --state-chip: rgba(245, 158, 11, 0.14);
-        --state-ink: #b45309;
+        --state-accent: #f59e0b;
       }
 
       .island-card[data-state="executing"] {
-        --state-glow: rgba(6, 182, 212, 0.24);
-        --state-chip: rgba(6, 182, 212, 0.14);
-        --state-ink: #0f766e;
+        --state-accent: #38bdf8;
       }
 
       .island-card[data-state="waiting"] {
-        --state-glow: rgba(251, 146, 60, 0.22);
-        --state-chip: rgba(251, 146, 60, 0.14);
-        --state-ink: #c2410c;
+        --state-accent: #fb923c;
       }
 
       .island-card[data-state="complete"] {
-        --state-glow: rgba(16, 185, 129, 0.22);
-        --state-chip: rgba(16, 185, 129, 0.14);
-        --state-ink: #047857;
+        --state-accent: #22c55e;
       }
 
       .island-card[data-state="error"] {
-        --state-glow: rgba(239, 68, 68, 0.22);
-        --state-chip: rgba(239, 68, 68, 0.14);
-        --state-ink: #b91c1c;
+        --state-accent: #ef4444;
       }
 
-      .pet-bubble {
-        position: absolute;
-        left: 28px;
-        top: 6px;
-        max-width: 150px;
-        padding: 6px 10px;
-        border-radius: 999px;
-        background: rgba(15, 23, 42, 0.92);
-        color: #f8fafc;
-        font-size: 11px;
-        font-weight: 700;
-        line-height: 1.3;
-        box-shadow: 0 16px 28px rgba(15, 23, 42, 0.18);
+      .compact-view {
+        width: 100%;
+        height: 100%;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 7px;
+        transition:
+          opacity 100ms ease,
+          transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      .island-card[data-expanded="true"] .compact-view {
         opacity: 0;
-        transform: translateY(4px) scale(0.96);
-        transform-origin: left bottom;
-        transition: opacity 180ms ease, transform 180ms ease;
+        transform: translateY(-4px) scale(0.94);
         pointer-events: none;
       }
 
-      .pet-bubble::after {
+      .compact-side {
+        min-width: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.66);
+        white-space: nowrap;
+      }
+
+      .compact-side.trailing {
+        justify-content: flex-end;
+      }
+
+      .compact-dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 999px;
+        background: var(--state-accent);
+        box-shadow: 0 0 8px var(--state-accent);
+        flex: 0 0 auto;
+      }
+
+      .compact-label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .compact-cutout {
+        width: 100%;
+        height: 100%;
+      }
+
+      .compact-value {
+        min-width: 15px;
+        height: 14px;
+        padding: 0 5px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.045);
+        font-size: 8px;
+        font-weight: 700;
+        color: rgba(255, 255, 255, 0.74);
+      }
+
+      .expanded-cutout {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        width: 132px;
+        height: 30px;
+        border-radius: 0 0 18px 18px;
+        background:
+          radial-gradient(circle at 22% 50%, rgba(38, 38, 42, 0.95), rgba(5, 5, 7, 0.98) 70%),
+          linear-gradient(180deg, rgba(16, 16, 18, 0.98), rgba(2, 2, 3, 1));
+        box-shadow:
+          inset 0 -1px 0 rgba(255, 255, 255, 0.03);
+        transform: translateX(-50%) translateY(-8px);
+        opacity: 0;
+        transition:
+          opacity 130ms ease,
+          transform 320ms cubic-bezier(0.16, 1.06, 0.3, 1);
+        pointer-events: none;
+      }
+
+      .expanded-cutout::after {
         content: "";
         position: absolute;
-        left: 18px;
-        bottom: -5px;
-        width: 12px;
-        height: 12px;
-        background: inherit;
-        transform: rotate(45deg);
-        border-radius: 2px;
+        right: 16px;
+        top: 6px;
+        width: 16px;
+        height: 16px;
+        border-radius: 999px;
+        background:
+          radial-gradient(circle at 36% 36%, rgba(111, 190, 255, 0.3), transparent 64%),
+          rgba(0, 0, 0, 0.8);
       }
 
-      .pet-bubble[hidden] {
-        display: none;
+      .island-card[data-expanded="true"] .expanded-cutout {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
       }
 
-      .pet-bubble.is-visible {
+      .expanded-view {
+        position: absolute;
+        inset: 0;
+        padding: 10px 14px 8px;
+        display: grid;
+        grid-template-rows: 1fr auto;
+        opacity: 0;
+        transform: translateY(8px) scale(0.965);
+        transition:
+          opacity 130ms ease 70ms,
+          transform 320ms cubic-bezier(0.16, 1.06, 0.3, 1) 20ms;
+        pointer-events: none;
+      }
+
+      .island-card[data-expanded="true"] .expanded-view {
         opacity: 1;
         transform: translateY(0) scale(1);
       }
 
-      .pet-bubble[data-tone="warm"] {
-        background: rgba(194, 65, 12, 0.94);
+      .expanded-stage {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 132px minmax(0, 1fr);
+        column-gap: 8px;
+        align-items: start;
+        min-height: 54px;
+        padding-top: 6px;
       }
 
-      .pet-bubble[data-tone="good"] {
-        background: rgba(4, 120, 87, 0.94);
-      }
-
-      .pet-bubble[data-tone="danger"] {
-        background: rgba(185, 28, 28, 0.94);
-      }
-
-      .pet-stage {
-        position: relative;
-        width: 70px;
-        height: 58px;
-        flex: 0 0 70px;
-      }
-
-      .pet-shadow {
-        position: absolute;
-        left: 15px;
-        bottom: 3px;
-        width: 40px;
-        height: 10px;
-        border-radius: 999px;
-        background: rgba(15, 23, 42, 0.12);
-        filter: blur(2px);
-      }
-
-      .pet-tail {
-        position: absolute;
-        right: 7px;
-        top: 20px;
-        width: 18px;
-        height: 28px;
-        border-radius: 18px;
-        border: 6px solid #1f2937;
-        border-left-color: transparent;
-        border-bottom-color: transparent;
-        transform-origin: 4px 20px;
-        transform: rotate(14deg);
-      }
-
-      .pet-body {
-        position: absolute;
-        left: 12px;
-        top: 24px;
-        width: 36px;
-        height: 21px;
-        border-radius: 18px 18px 14px 14px;
-        background: linear-gradient(180deg, #232f43 0%, #111827 100%);
-        transform-origin: center bottom;
-      }
-
-      .pet-paw {
-        position: absolute;
-        top: 39px;
-        width: 11px;
-        height: 16px;
-        border-radius: 999px;
-        background: linear-gradient(180deg, #202c3f 0%, #111827 100%);
-        transform-origin: top center;
-      }
-
-      .pet-paw.paw-left {
-        left: 18px;
-      }
-
-      .pet-paw.paw-right {
-        left: 32px;
-      }
-
-      .pet-head {
-        position: absolute;
-        left: 19px;
-        top: 7px;
-        width: 34px;
-        height: 30px;
-        border-radius: 16px 16px 15px 15px;
-        background: linear-gradient(180deg, #243246 0%, #0f172a 100%);
-        transform-origin: center 78%;
-      }
-
-      .pet-ear {
-        position: absolute;
-        top: -8px;
-        width: 12px;
-        height: 14px;
-        background: linear-gradient(180deg, #243246 0%, #111827 100%);
-        clip-path: polygon(50% 0, 0 100%, 100% 100%);
-      }
-
-      .pet-ear.ear-left {
-        left: 3px;
-        transform: rotate(-8deg);
-      }
-
-      .pet-ear.ear-right {
-        right: 3px;
-        transform: rotate(8deg);
-      }
-
-      .pet-ear::after {
-        content: "";
-        position: absolute;
-        left: 3px;
-        top: 4px;
-        width: 6px;
-        height: 7px;
-        background: rgba(255, 201, 214, 0.9);
-        clip-path: polygon(50% 0, 0 100%, 100% 100%);
-      }
-
-      .pet-face {
-        position: absolute;
-        inset: 0;
-      }
-
-      .pet-eye {
-        position: absolute;
-        top: 11px;
-        width: 6px;
-        height: 8px;
-        border-radius: 999px;
-        background: #dcfce7;
-        box-shadow: 0 0 0 4px rgba(220, 252, 231, 0.08);
-        transform-origin: center 60%;
-      }
-
-      .pet-eye.eye-left {
-        left: 9px;
-      }
-
-      .pet-eye.eye-right {
-        right: 9px;
-      }
-
-      .pet-eye::after {
-        content: "";
-        position: absolute;
-        left: 2px;
-        top: 2px;
-        width: 2px;
-        height: 2px;
-        border-radius: 999px;
-        background: rgba(15, 23, 42, 0.88);
-      }
-      .pet-nose {
-        position: absolute;
-        left: 50%;
-        top: 16px;
-        width: 6px;
-        height: 5px;
-        margin-left: -3px;
-        border-radius: 999px 999px 70% 70%;
-        background: #fda4af;
-      }
-
-      .pet-mouth {
-        position: absolute;
-        left: 50%;
-        top: 21px;
-        width: 12px;
-        height: 7px;
-        margin-left: -6px;
-      }
-
-      .pet-mouth::before,
-      .pet-mouth::after {
-        content: "";
-        position: absolute;
-        top: 0;
-        width: 6px;
-        height: 7px;
-        border-bottom: 2px solid rgba(248, 250, 252, 0.92);
-        border-radius: 0 0 10px 10px;
-      }
-
-      .pet-mouth::before {
-        left: 0;
-        border-right: 1px solid rgba(248, 250, 252, 0.92);
-      }
-
-      .pet-mouth::after {
-        right: 0;
-        border-left: 1px solid rgba(248, 250, 252, 0.92);
-      }
-
-      .island-copy {
+      .expanded-column {
         min-width: 0;
-        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        opacity: 0;
+        transition:
+          opacity 120ms ease 90ms,
+          transform 320ms cubic-bezier(0.16, 1.02, 0.3, 1) 35ms;
       }
 
-      .island-label {
+      .expanded-column.leading {
+        grid-column: 1;
+        align-self: end;
+        justify-self: stretch;
+        transform: translateX(14px) translateY(4px) scale(0.97);
+      }
+
+      .expanded-column.trailing {
+        grid-column: 3;
+        align-items: flex-end;
+        justify-self: stretch;
+        text-align: right;
+        transform: translateX(-14px) translateY(4px) scale(0.97);
+      }
+
+      .island-card[data-expanded="true"] .expanded-column {
+        opacity: 1;
+      }
+
+      .island-card[data-expanded="true"] .expanded-column.leading,
+      .island-card[data-expanded="true"] .expanded-column.trailing {
+        transform: translateX(0) translateY(0) scale(1);
+      }
+
+      .expanded-leading-top {
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 7px;
+        min-height: 12px;
+      }
+
+      .expanded-trailing-top {
         min-width: 0;
-      }
-
-      .island-label strong {
-        display: block;
-        font-size: 14px;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-      }
-
-      .island-badge {
-        padding: 4px 8px;
-        border-radius: 999px;
-        background: var(--state-chip);
-        color: var(--state-ink);
-        font-size: 11px;
-        font-weight: 800;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-        white-space: nowrap;
-      }
-
-      .island-detail {
-        margin-top: 5px;
-        color: var(--muted);
-        font-size: 12px;
+        min-height: 12px;
+        font-size: 9.5px;
+        color: rgba(255, 255, 255, 0.36);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
       }
 
-      .island-hint {
-        flex: 0 0 auto;
-        color: #94a3b8;
-        font-size: 11px;
-        font-weight: 700;
+      .live-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0;
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.68);
+      }
+
+      .live-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: var(--state-accent);
+        box-shadow: 0 0 10px var(--state-accent);
+        animation: live-pulse 2.1s ease-in-out infinite;
+      }
+
+      .expanded-copy {
+        min-width: 0;
+      }
+
+      .activity-rail {
+        min-height: 18px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .activity-rail[hidden] {
+        display: none;
+      }
+
+      .expanded-trailing-top + .activity-rail,
+      .activity-rail + .expanded-summary {
+        margin-top: 5px;
+      }
+
+      .activity-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 7px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        color: rgba(255, 255, 255, 0.72);
+      }
+
+      .activity-chip[hidden] {
+        display: none;
+      }
+
+      .activity-chip[data-tone="accent"] {
+        background: rgba(56, 189, 248, 0.12);
+        border-color: rgba(56, 189, 248, 0.16);
+      }
+
+      .activity-chip[data-tone="warm"] {
+        background: rgba(251, 146, 60, 0.13);
+        border-color: rgba(251, 146, 60, 0.18);
+      }
+
+      .activity-chip[data-tone="muted"] {
+        background: rgba(255, 255, 255, 0.04);
+        border-color: rgba(255, 255, 255, 0.04);
+      }
+
+      .activity-chip strong {
+        display: block;
+        font-size: 10px;
+        font-weight: 630;
+        line-height: 1;
+        color: #ffffff;
+      }
+
+      .activity-chip span {
+        display: block;
+        font-size: 7px;
+        line-height: 1;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.5);
+      }
+
+      .activity-rail:not([hidden]) + strong {
+        margin-top: 7px;
+      }
+
+      .expanded-copy strong {
+        display: block;
+        font-size: 14px;
+        font-weight: 620;
+        letter-spacing: -0.04em;
+        line-height: 1.08;
+        color: #ffffff;
+      }
+
+      .expanded-detail {
+        margin-top: 4px;
+        font-size: 10px;
+        line-height: 1.34;
+        color: rgba(255, 255, 255, 0.5);
         white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
-      .island-card[data-state="offline"] .pet-stage {
-        opacity: 0.72;
+      .expanded-summary {
+        min-height: 14px;
+        font-size: 9.5px;
+        line-height: 1.3;
+        color: rgba(255, 255, 255, 0.42);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
-      .island-card[data-state="offline"] .pet-eye {
-        transform: scaleY(0.18);
-      }
-
-      .island-card[data-state="online"] .pet-stage {
-        animation: pet-idle 3s ease-in-out infinite;
-      }
-
-      .island-card[data-state="online"] .pet-tail {
-        animation: tail-sway 2.6s ease-in-out infinite;
-      }
-
-      .island-card[data-state="online"] .pet-eye {
-        animation: blink 5.6s ease-in-out infinite;
-      }
-
-      .island-card[data-state="booting"] .pet-stage {
-        animation: pet-breathe 2.2s ease-in-out infinite;
-      }
-
-      .island-card[data-state="booting"] .pet-tail {
-        animation: tail-slow 3.1s ease-in-out infinite;
-      }
-
-      .island-card[data-state="booting"] .pet-eye {
-        animation: sleepy-blink 4.2s ease-in-out infinite;
-      }
-
-      .island-card[data-state="thinking"] .pet-head {
-        animation: head-tilt 1.35s ease-in-out infinite;
-      }
-
-      .island-card[data-state="thinking"] .pet-ear.ear-left {
-        animation: ear-flick-left 1.2s ease-in-out infinite;
-      }
-
-      .island-card[data-state="thinking"] .pet-ear.ear-right {
-        animation: ear-flick-right 1.2s ease-in-out infinite;
-      }
-
-      .island-card[data-state="thinking"] .pet-tail {
-        animation: tail-sway 1.45s ease-in-out infinite;
-      }
-
-      .island-card[data-state="thinking"] .pet-eye {
-        background: #fde68a;
-        box-shadow: 0 0 0 4px rgba(253, 230, 138, 0.12);
-      }
-
-      .island-card[data-state="executing"] .pet-stage {
-        animation: pet-bounce 0.82s ease-in-out infinite;
-      }
-
-      .island-card[data-state="executing"] .pet-tail {
-        animation: tail-fast 0.58s linear infinite;
-      }
-
-      .island-card[data-state="executing"] .pet-paw.paw-left {
-        animation: paw-tap-left 0.52s ease-in-out infinite;
-      }
-
-      .island-card[data-state="executing"] .pet-paw.paw-right {
-        animation: paw-tap-right 0.52s ease-in-out infinite;
-      }
-
-      .island-card[data-state="executing"] .pet-eye {
-        background: #a5f3fc;
-        box-shadow: 0 0 0 4px rgba(165, 243, 252, 0.12);
-      }
-
-      .island-card[data-state="waiting"] .pet-stage {
-        animation: pet-idle 2.1s ease-in-out infinite;
-      }
-
-      .island-card[data-state="waiting"] .pet-tail {
-        animation: tail-sway 1s ease-in-out infinite;
-      }
-
-      .island-card[data-state="waiting"] .pet-paw.paw-right {
-        animation: paw-wave 1.06s ease-in-out infinite;
-      }
-
-      .island-card[data-state="waiting"] .pet-eye {
-        background: #fed7aa;
-        box-shadow: 0 0 0 4px rgba(254, 215, 170, 0.14);
-      }
-
-      .island-card[data-state="complete"] .pet-stage {
-        animation: pet-hop 0.9s ease-in-out infinite;
-      }
-
-      .island-card[data-state="complete"] .pet-tail {
-        animation: tail-fast 0.68s linear infinite;
-      }
-
-      .island-card[data-state="complete"] .pet-eye {
-        background: #bbf7d0;
-        box-shadow: 0 0 0 4px rgba(187, 247, 208, 0.14);
-      }
-
-      .island-card[data-state="complete"] .pet-shadow {
-        animation: shadow-pop 0.9s ease-in-out infinite;
-      }
-
-      .island-card[data-state="error"] {
-        animation: island-shake 0.82s ease-in-out infinite;
-      }
-
-      .island-card[data-state="error"] .pet-head {
-        animation: head-droop 1s ease-in-out infinite;
-      }
-
-      .island-card[data-state="error"] .pet-tail {
-        animation: tail-still 1.2s ease-in-out infinite;
-      }
-
-      .island-card[data-state="error"] .pet-eye {
-        background: #fecaca;
-        box-shadow: 0 0 0 4px rgba(254, 202, 202, 0.14);
-        transform: scaleY(0.2);
-      }
-
-      .island-card.is-poked .pet-stage {
-        animation: pet-poke 0.58s ease;
-      }
-
-      .island-card.is-poked .pet-tail {
-        animation: tail-fast 0.36s linear 2;
-      }
-
-      .island-card.is-poked .pet-head {
-        animation: head-pop 0.58s ease;
-      }
-
-      @keyframes loading {
+      @keyframes progress-slide {
         0% {
-          transform: translateX(-18%) scaleX(0.72);
+          transform: translateX(-12%);
         }
         50% {
-          transform: translateX(148%) scaleX(1.16);
+          transform: translateX(108%);
         }
         100% {
-          transform: translateX(304%) scaleX(0.72);
+          transform: translateX(-12%);
         }
       }
 
-      @keyframes pet-idle {
+      @keyframes live-pulse {
         0%,
         100% {
-          transform: translateY(0);
+          transform: scale(0.96);
+          opacity: 0.84;
         }
         50% {
-          transform: translateY(-1px);
-        }
-      }
-
-      @keyframes pet-breathe {
-        0%,
-        100% {
-          transform: translateY(0) scale(1);
-        }
-        50% {
-          transform: translateY(1px) scale(0.985);
-        }
-      }
-
-      @keyframes pet-bounce {
-        0%,
-        100% {
-          transform: translateY(0);
-        }
-        45% {
-          transform: translateY(-5px);
-        }
-        70% {
-          transform: translateY(1px);
-        }
-      }
-
-      @keyframes pet-hop {
-        0%,
-        100% {
-          transform: translateY(0) scale(1);
-        }
-        40% {
-          transform: translateY(-6px) scale(1.02);
-        }
-        65% {
-          transform: translateY(1px) scale(0.99);
-        }
-      }
-
-      @keyframes pet-poke {
-        0% {
-          transform: translateY(0) scale(1);
-        }
-        35% {
-          transform: translateY(-3px) scale(1.03);
-        }
-        100% {
-          transform: translateY(0) scale(1);
-        }
-      }
-
-      @keyframes tail-sway {
-        0%,
-        100% {
-          transform: rotate(14deg);
-        }
-        50% {
-          transform: rotate(28deg);
-        }
-      }
-
-      @keyframes tail-slow {
-        0%,
-        100% {
-          transform: rotate(12deg);
-        }
-        50% {
-          transform: rotate(19deg);
-        }
-      }
-
-      @keyframes tail-fast {
-        0% {
-          transform: rotate(9deg);
-        }
-        50% {
-          transform: rotate(34deg);
-        }
-        100% {
-          transform: rotate(9deg);
-        }
-      }
-
-      @keyframes tail-still {
-        0%,
-        100% {
-          transform: rotate(10deg);
-        }
-        50% {
-          transform: rotate(14deg);
-        }
-      }
-      @keyframes head-tilt {
-        0%,
-        100% {
-          transform: rotate(0deg) translateY(0);
-        }
-        25% {
-          transform: rotate(-6deg) translateY(-1px);
-        }
-        75% {
-          transform: rotate(7deg) translateY(-1px);
-        }
-      }
-
-      @keyframes head-pop {
-        0% {
-          transform: rotate(0deg) scale(1);
-        }
-        35% {
-          transform: rotate(-7deg) scale(1.03);
-        }
-        100% {
-          transform: rotate(0deg) scale(1);
-        }
-      }
-
-      @keyframes head-droop {
-        0%,
-        100% {
-          transform: rotate(0deg) translateY(0);
-        }
-        50% {
-          transform: rotate(-3deg) translateY(2px);
-        }
-      }
-
-      @keyframes ear-flick-left {
-        0%,
-        100% {
-          transform: rotate(-8deg);
-        }
-        45% {
-          transform: rotate(-18deg);
-        }
-      }
-
-      @keyframes ear-flick-right {
-        0%,
-        100% {
-          transform: rotate(8deg);
-        }
-        45% {
-          transform: rotate(18deg);
-        }
-      }
-
-      @keyframes paw-wave {
-        0%,
-        100% {
-          transform: translateY(0) rotate(0deg);
-        }
-        40% {
-          transform: translateY(-10px) rotate(-18deg);
-        }
-        75% {
-          transform: translateY(-6px) rotate(6deg);
-        }
-      }
-
-      @keyframes paw-tap-left {
-        0%,
-        100% {
-          transform: translateY(0);
-        }
-        50% {
-          transform: translateY(3px);
-        }
-      }
-
-      @keyframes paw-tap-right {
-        0%,
-        100% {
-          transform: translateY(3px);
-        }
-        50% {
-          transform: translateY(0);
-        }
-      }
-
-      @keyframes blink {
-        0%,
-        44%,
-        100% {
-          transform: scaleY(1);
-        }
-        46%,
-        48% {
-          transform: scaleY(0.16);
-        }
-      }
-
-      @keyframes sleepy-blink {
-        0%,
-        54%,
-        100% {
-          transform: scaleY(0.45);
-        }
-        58%,
-        62% {
-          transform: scaleY(0.08);
-        }
-      }
-
-      @keyframes shadow-pop {
-        0%,
-        100% {
-          transform: scaleX(1);
+          transform: scale(1.18);
           opacity: 1;
-        }
-        40% {
-          transform: scaleX(0.86);
-          opacity: 0.82;
-        }
-      }
-
-      @keyframes island-shake {
-        0%,
-        100% {
-          transform: translateX(0);
-        }
-        25% {
-          transform: translateX(-3px);
-        }
-        75% {
-          transform: translateX(3px);
         }
       }
     </style>
@@ -1054,77 +751,103 @@
   <body data-mode="normal">
     <div class="app">
       <section class="window-shell">
-        <header class="titlebar">
-          <div class="title-copy">
-            <strong>AnyClaw Workspace</strong>
-            <span>桌面壳正在托管本地 Dashboard，你可以随时收起成灵动岛宠物。</span>
-          </div>
-          <div class="header-status">
-            <span class="status-dot" data-state="booting" id="headerDot"></span>
-            <span id="headerStatus">正在启动</span>
-          </div>
-          <div class="title-actions">
-            <button class="action-btn" id="openBrowser" type="button">浏览器打开</button>
-            <button class="action-btn primary" id="enterPetMode" type="button">收起为原子岛</button>
-            <button class="action-btn" id="closeApp" type="button">关闭</button>
-          </div>
-        </header>
-
-        <main class="dashboard-shell">
-          <iframe id="dashboardFrame" referrerpolicy="no-referrer" title="AnyClaw Dashboard"></iframe>
-
-          <section class="boot-overlay" id="bootOverlay">
-            <div class="boot-card">
-              <h1 id="bootTitle">正在启动桌面工作台</h1>
-              <p id="bootStatus">正在准备本地网关、连接控制台并同步岛宠状态。</p>
-              <div class="boot-progress" id="bootProgress"><span></span></div>
-              <div class="boot-meta" id="bootMeta">首次启动可能会稍慢一些，完成后会自动载入 Dashboard。</div>
-              <pre class="boot-detail" id="bootDetail" hidden></pre>
-              <div class="boot-actions" id="bootActions" hidden>
-                <button class="action-btn primary" id="retryLaunch" type="button">重新尝试</button>
-                <button class="action-btn" id="bootBrowser" type="button">浏览器打开</button>
-              </div>
+        <div class="window-panel">
+          <header class="titlebar">
+            <div class="title-copy">
+              <strong>AnyClaw Workspace</strong>
+              <span>桌面壳正在托管本地 Dashboard，你可以随时收起成更接近苹果灵动岛的紧凑状态栏。</span>
             </div>
-          </section>
-        </main>
+
+            <div class="header-status">
+              <span class="status-dot" data-state="booting" id="headerDot"></span>
+              <span id="headerStatus">正在启动</span>
+            </div>
+
+            <div class="title-actions">
+              <button class="action-btn" id="openBrowser" type="button">浏览器打开</button>
+              <button class="action-btn primary" id="enterIslandMode" type="button">收起为灵动岛</button>
+              <button class="action-btn" id="closeApp" type="button">关闭</button>
+            </div>
+          </header>
+
+          <main class="dashboard-shell">
+            <iframe id="dashboardFrame" referrerpolicy="no-referrer" title="AnyClaw Dashboard"></iframe>
+
+            <section class="boot-overlay" id="bootOverlay">
+              <div class="boot-card">
+                <h1 id="bootTitle">正在启动桌面工作台</h1>
+                <p id="bootStatus">正在准备本地网关、连接控制台并同步灵动岛状态。</p>
+                <div class="boot-progress" id="bootProgress"><span></span></div>
+                <div class="boot-meta" id="bootMeta">首次启动可能会稍慢一些，完成后会自动载入 Dashboard。</div>
+                <pre class="boot-detail" id="bootDetail" hidden></pre>
+                <div class="boot-actions" id="bootActions" hidden>
+                  <button class="action-btn primary" id="retryLaunch" type="button">重新尝试</button>
+                  <button class="action-btn" id="bootBrowser" type="button">浏览器打开</button>
+                </div>
+              </div>
+            </section>
+          </main>
+        </div>
       </section>
 
-      <section class="island-shell">
-        <div
-          class="island-card"
-          data-state="online"
-          id="petCard"
-          title="双击展开工作台，单击戳一戳，按住即可拖拽移动"
-        >
-          <div class="pet-bubble" id="petBubble" hidden>AnyClaw 岛宠已上线</div>
-
-          <div class="pet-stage" aria-hidden="true">
-            <div class="pet-shadow"></div>
-            <div class="pet-tail"></div>
-            <div class="pet-body"></div>
-            <div class="pet-paw paw-left"></div>
-            <div class="pet-paw paw-right"></div>
-            <div class="pet-head">
-              <div class="pet-ear ear-left"></div>
-              <div class="pet-ear ear-right"></div>
-              <div class="pet-face">
-                <div class="pet-eye eye-left"></div>
-                <div class="pet-eye eye-right"></div>
-                <div class="pet-nose"></div>
-                <div class="pet-mouth"></div>
+      <section class="island-shell" aria-label="AnyClaw 灵动岛">
+        <div class="island-frame">
+          <div
+            class="island-card"
+            data-state="booting"
+            data-expanded="true"
+            id="islandCard"
+          >
+            <div class="compact-view" aria-hidden="true">
+              <div class="compact-side">
+                <span class="compact-dot"></span>
+                <span class="compact-label" id="compactLeading">启动</span>
+              </div>
+              <div class="compact-cutout"></div>
+              <div class="compact-side trailing">
+                <span class="compact-value" id="compactTrailing">0</span>
               </div>
             </div>
-          </div>
 
-          <div class="island-copy">
-            <div class="island-label">
-              <strong id="petStatus">在线</strong>
-              <span class="island-badge" id="petBadge">online</span>
+            <div class="expanded-cutout" aria-hidden="true"></div>
+
+            <div class="expanded-view">
+              <div class="expanded-stage">
+                <div class="expanded-column leading">
+                  <div class="expanded-leading-top">
+                    <span class="live-pill">
+                      <span class="live-dot"></span>
+                      <span id="islandBadge">启动中</span>
+                    </span>
+                  </div>
+                  <div class="expanded-copy">
+                    <strong id="islandStatus">正在启动 AnyClaw</strong>
+                    <div class="expanded-detail" id="islandDetail">正在连接本地网关并同步任务状态。</div>
+                  </div>
+                </div>
+
+                <div class="expanded-column trailing">
+                  <div class="expanded-trailing-top" id="islandMeta">刚刚同步</div>
+                  <div class="activity-rail" id="activityRail" hidden>
+                    <span class="activity-chip" data-tone="accent" id="taskChip" hidden>
+                      <strong id="taskCount">0</strong>
+                      <span>任务</span>
+                    </span>
+                    <span class="activity-chip" data-tone="warm" id="approvalChip" hidden>
+                      <strong id="approvalCount">0</strong>
+                      <span>审批</span>
+                    </span>
+                    <span class="activity-chip" data-tone="muted" id="sessionChip" hidden>
+                      <strong id="sessionCount">0</strong>
+                      <span>会话</span>
+                    </span>
+                  </div>
+                  <div class="expanded-summary" id="islandMood">工作台在线</div>
+                </div>
+              </div>
+
             </div>
-            <div class="island-detail" id="petDetail">岛宠正在待命，双击展开，单击可以戳一戳。</div>
           </div>
-
-          <div class="island-hint" id="petHint">双击展开</div>
         </div>
       </section>
     </div>
@@ -1142,140 +865,386 @@
 
       const headerDot = document.getElementById("headerDot");
       const headerStatus = document.getElementById("headerStatus");
-      const petCard = document.getElementById("petCard");
-      const petStatus = document.getElementById("petStatus");
-      const petDetail = document.getElementById("petDetail");
-      const petBadge = document.getElementById("petBadge");
-      const petHint = document.getElementById("petHint");
-      const petBubble = document.getElementById("petBubble");
+
+      const islandCard = document.getElementById("islandCard");
+      const compactLeading = document.getElementById("compactLeading");
+      const compactTrailing = document.getElementById("compactTrailing");
+      const islandBadge = document.getElementById("islandBadge");
+      const islandMeta = document.getElementById("islandMeta");
+      const islandStatus = document.getElementById("islandStatus");
+      const islandDetail = document.getElementById("islandDetail");
+      const activityRail = document.getElementById("activityRail");
+      const taskChip = document.getElementById("taskChip");
+      const approvalChip = document.getElementById("approvalChip");
+      const sessionChip = document.getElementById("sessionChip");
+      const taskCount = document.getElementById("taskCount");
+      const approvalCount = document.getElementById("approvalCount");
+      const sessionCount = document.getElementById("sessionCount");
+      const islandMood = document.getElementById("islandMood");
 
       const openBrowserButton = document.getElementById("openBrowser");
-      const enterPetModeButton = document.getElementById("enterPetMode");
+      const enterIslandModeButton = document.getElementById("enterIslandMode");
       const closeAppButton = document.getElementById("closeApp");
       const retryLaunchButton = document.getElementById("retryLaunch");
       const bootBrowserButton = document.getElementById("bootBrowser");
 
-      const bubbleStates = new Set(["waiting", "complete", "error"]);
-
       const state = {
         dashboardURL: "",
         launched: false,
+        islandMode: false,
         pollTimer: 0,
-        petMode: false,
-        bubbleTimer: 0,
-        pokeTimer: 0,
-        clickTimer: 0,
-        lastBubbleKey: "",
+        hovered: false,
+        hoverOpenTimer: 0,
+        hoverCloseTimer: 0,
+        latestSnapshot: null,
       };
 
+      function toInt(value) {
+        const parsed = Number.parseInt(`${value ?? 0}`, 10);
+        return Number.isFinite(parsed) ? parsed : 0;
+      }
+
+      function clampText(value, max = 22) {
+        const text = `${value ?? ""}`.trim();
+        if (text.length <= max) {
+          return text;
+        }
+        return `${text.slice(0, Math.max(0, max - 1))}\u2026`;
+      }
+
       function setMode(mode) {
+        document.documentElement.dataset.mode = mode;
         document.body.dataset.mode = mode;
-        state.petMode = mode === "pet";
+        state.islandMode = mode === "island";
+        clearHoverTimers();
+        if (!state.islandMode) {
+          state.hovered = false;
+        }
+        refreshIslandExpansion();
+      }
+
+      function relativeTimeLabel(updatedAt) {
+        if (!updatedAt) {
+          return "刚刚同步";
+        }
+
+        const timestamp = Date.parse(updatedAt);
+        if (Number.isNaN(timestamp)) {
+          return "刚刚同步";
+        }
+
+        const deltaSeconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+        if (deltaSeconds < 10) {
+          return "刚刚同步";
+        }
+        if (deltaSeconds < 60) {
+          return `${deltaSeconds} 秒前`;
+        }
+
+        const deltaMinutes = Math.round(deltaSeconds / 60);
+        if (deltaMinutes < 60) {
+          return `${deltaMinutes} 分钟前`;
+        }
+
+        const deltaHours = Math.round(deltaMinutes / 60);
+        if (deltaHours < 24) {
+          return `${deltaHours} 小时前`;
+        }
+
+        const deltaDays = Math.round(deltaHours / 24);
+        return `${deltaDays} 天前`;
+      }
+
+      function engineForSnapshot(snapshot) {
+        const provider = clampText(snapshot?.provider || "", 12);
+        const model = clampText(snapshot?.model || "", 16);
+
+        if (provider && model) {
+          return `${provider} · ${model}`;
+        }
+        return model || provider;
+      }
+
+      function badgeForState(visualState) {
+        switch (visualState) {
+          case "booting":
+            return "启动中";
+          case "offline":
+            return "离线";
+          case "thinking":
+            return "思考";
+          case "executing":
+            return "执行中";
+          case "waiting":
+            return "待确认";
+          case "complete":
+            return "已完成";
+          case "error":
+            return "异常";
+          default:
+            return "在线";
+        }
       }
 
       function hintForState(visualState) {
         switch (visualState) {
           case "waiting":
-            return "双击处理";
+            return "双击回工作台处理审批";
           case "error":
-            return "双击查看";
+            return "双击回工作台查看异常";
           default:
-            return "双击展开";
+            return "双击回到工作台";
         }
       }
 
-      function bubbleToneForState(visualState) {
-        switch (visualState) {
-          case "waiting":
-            return "warm";
-          case "complete":
-            return "good";
-          case "error":
-            return "danger";
-          default:
-            return "note";
-        }
-      }
-      function bubbleMessageForSnapshot(snapshot) {
+      function labelForSnapshot(snapshot) {
         switch (snapshot?.state) {
+          case "booting":
+            return "正在启动 AnyClaw";
+          case "offline":
+            return "工作台暂时离线";
+          case "thinking":
+            return "正在整理上下文";
+          case "executing":
+            return "正在执行任务";
           case "waiting":
-            return "有操作正在等你确认";
+            return "等待你的确认";
           case "complete":
-            return "刚刚完成了一轮任务";
+            return "任务刚刚完成";
           case "error":
-            return "这次执行出了点问题";
+            return "上一轮任务出错";
           default:
-            return snapshot?.detail || "AnyClaw 岛宠在线";
+            return "工作台已就绪";
         }
       }
 
-      function showBubble(text, tone = "note", duration = 2600) {
-        if (!text) {
-          return;
+      function detailForSnapshot(snapshot) {
+        const activeTasks = toInt(snapshot?.activeTasks);
+        const activeSessions = toInt(snapshot?.activeSessions);
+        const pendingApprovals = toInt(snapshot?.pendingApprovals);
+        const engine = engineForSnapshot(snapshot);
+
+        switch (snapshot?.state) {
+          case "booting":
+            return "正在连接本地网关、控制台和任务状态。";
+          case "offline":
+            return "桌面壳还在，但本地网关暂时没有连上。";
+          case "thinking":
+            return activeSessions > 0
+              ? `正在整理 ${activeSessions} 个会话的上下文。`
+              : "正在整理当前任务的上下文。";
+          case "executing":
+            return activeTasks > 0
+              ? `有 ${activeTasks} 个任务正在执行。`
+              : "正在替你继续当前任务。";
+          case "waiting":
+            return pendingApprovals > 0
+              ? `有 ${pendingApprovals} 个步骤在等你确认。`
+              : "有一步需要你的确认后才能继续。";
+          case "complete":
+            return "这一轮已经收好尾，回到工作台可以继续下一步。";
+          case "error":
+            return "这一轮没有走通，回到工作台可以看详情。";
+          default:
+            return engine ? `工作台在线，当前模型 ${engine}。` : "工作台在线，随时可以继续。";
         }
-
-        clearTimeout(state.bubbleTimer);
-        petBubble.hidden = false;
-        petBubble.dataset.tone = tone;
-        petBubble.textContent = text;
-        petBubble.classList.add("is-visible");
-
-        state.bubbleTimer = window.setTimeout(() => {
-          petBubble.classList.remove("is-visible");
-          window.setTimeout(() => {
-            if (!petBubble.classList.contains("is-visible")) {
-              petBubble.hidden = true;
-            }
-          }, 180);
-        }, duration);
       }
 
-      function triggerPoke() {
-        petCard.classList.remove("is-poked");
-        void petCard.offsetWidth;
-        petCard.classList.add("is-poked");
-
-        clearTimeout(state.pokeTimer);
-        state.pokeTimer = window.setTimeout(() => {
-          petCard.classList.remove("is-poked");
-        }, 620);
-
-        showBubble("我在，随时待命。", "note", 1200);
+      function taskCountForSnapshot(snapshot) {
+        const activeTasks = toInt(snapshot?.activeTasks);
+        if (snapshot?.state === "executing" && activeTasks === 0) {
+          return 1;
+        }
+        return activeTasks;
       }
 
-      function maybeShowStateBubble(snapshot) {
-        const visualState = snapshot?.state || "";
-        const bubbleKey = `${visualState}:${snapshot?.lastEvent || ""}`;
+      function approvalCountForSnapshot(snapshot) {
+        return toInt(snapshot?.pendingApprovals);
+      }
 
-        if (!bubbleStates.has(visualState)) {
-          state.lastBubbleKey = bubbleKey;
-          return;
+      function sessionCountForSnapshot(snapshot) {
+        return toInt(snapshot?.activeSessions);
+      }
+
+      function compactLeadingForSnapshot(snapshot) {
+        switch (snapshot?.state) {
+          case "booting":
+            return "启动";
+          case "offline":
+            return "离线";
+          case "thinking":
+            return "思考";
+          case "executing":
+            return "执行";
+          case "waiting":
+            return "确认";
+          case "complete":
+            return "完成";
+          case "error":
+            return "异常";
+          default:
+            return "在线";
+        }
+      }
+
+      function compactTrailingForSnapshot(snapshot) {
+        const approvals = approvalCountForSnapshot(snapshot);
+        if (approvals > 0) {
+          return `${approvals}`;
         }
 
-        if (bubbleKey === state.lastBubbleKey) {
-          return;
+        const tasks = taskCountForSnapshot(snapshot);
+        if (tasks > 0) {
+          return `${tasks}`;
         }
 
-        state.lastBubbleKey = bubbleKey;
-        showBubble(bubbleMessageForSnapshot(snapshot), bubbleToneForState(visualState), 3200);
+        const activeSessions = toInt(snapshot?.activeSessions);
+        if (activeSessions > 0) {
+          return `${activeSessions}`;
+        }
+
+        switch (snapshot?.state) {
+          case "error":
+            return "!";
+          default:
+            return "";
+        }
+      }
+
+      function conciseDetailForSnapshot(snapshot) {
+        const tasks = taskCountForSnapshot(snapshot);
+        const approvals = approvalCountForSnapshot(snapshot);
+        const sessions = sessionCountForSnapshot(snapshot);
+
+        switch (snapshot?.state) {
+          case "booting":
+            return "正在连接本地网关";
+          case "offline":
+            return "本地网关暂时离线";
+          case "thinking":
+            return sessions > 0 ? `正在整理 ${sessions} 个会话` : "正在整理当前上下文";
+          case "executing":
+            return tasks > 0 ? `${tasks} 个任务执行中` : "正在继续当前任务";
+          case "waiting":
+            return approvals > 0 ? `${approvals} 个步骤待确认` : "有一步在等你确认";
+          case "complete":
+            return "这一轮已经完成";
+          case "error":
+            return "上一轮任务出现异常";
+          default:
+            return "工作台在线";
+        }
+      }
+
+      function conciseSummaryForSnapshot(snapshot) {
+        const approvals = approvalCountForSnapshot(snapshot);
+        if (approvals > 0) {
+          return `${approvals} 个待确认`;
+        }
+
+        const tasks = taskCountForSnapshot(snapshot);
+        if (tasks > 0) {
+          return `${tasks} 个任务运行中`;
+        }
+
+        const sessions = sessionCountForSnapshot(snapshot);
+        if (sessions > 0) {
+          return `${sessions} 个会话活跃`;
+        }
+
+        return engineForSnapshot(snapshot) || "工作台待命";
+      }
+
+      function topMetaForSnapshot(snapshot) {
+        return relativeTimeLabel(snapshot?.updatedAt);
+      }
+
+      function footerSummaryForSnapshot(snapshot) {
+        const approvals = approvalCountForSnapshot(snapshot);
+        if (approvals > 0) {
+          return `${approvals} 个审批待处理`;
+        }
+
+        const tasks = taskCountForSnapshot(snapshot);
+        if (tasks > 0) {
+          return `${tasks} 个任务运行中`;
+        }
+
+        const activeSessions = toInt(snapshot?.activeSessions);
+        if (activeSessions > 0) {
+          return `${activeSessions} 个会话活跃`;
+        }
+
+        return engineForSnapshot(snapshot) || "工作台待命";
+      }
+
+      function shouldStayExpanded() {
+        return state.islandMode && state.hovered;
+      }
+
+      function setExpanded(expanded) {
+        islandCard.dataset.expanded = expanded ? "true" : "false";
+      }
+
+      function clearHoverTimers() {
+        clearTimeout(state.hoverOpenTimer);
+        clearTimeout(state.hoverCloseTimer);
+      }
+
+      function scheduleHoverExpand() {
+        clearTimeout(state.hoverCloseTimer);
+        clearTimeout(state.hoverOpenTimer);
+        state.hoverOpenTimer = window.setTimeout(() => {
+          state.hovered = true;
+          refreshIslandExpansion();
+        }, 90);
+      }
+
+      function scheduleHoverCollapse() {
+        clearTimeout(state.hoverOpenTimer);
+        clearTimeout(state.hoverCloseTimer);
+        state.hoverCloseTimer = window.setTimeout(() => {
+          state.hovered = false;
+          refreshIslandExpansion();
+        }, 180);
+      }
+
+      function refreshIslandExpansion() {
+        setExpanded(shouldStayExpanded());
       }
 
       function setIslandVisual(snapshot) {
         const visualState = snapshot?.state || "online";
-        const label = snapshot?.label || "在线";
-        const detail = snapshot?.detail || "岛宠正在待命。";
+        const label = labelForSnapshot(snapshot);
+        const detail = conciseDetailForSnapshot(snapshot);
+        const tasks = taskCountForSnapshot(snapshot);
+        const approvals = approvalCountForSnapshot(snapshot);
+        const sessions = sessionCountForSnapshot(snapshot);
+        const compactTrailingText = compactTrailingForSnapshot(snapshot);
+
+        state.latestSnapshot = snapshot || null;
 
         headerDot.dataset.state = visualState;
         headerStatus.textContent = label;
 
-        petCard.dataset.state = visualState;
-        petStatus.textContent = label;
-        petDetail.textContent = detail;
-        petBadge.textContent = visualState;
-        petHint.textContent = hintForState(visualState);
-        petCard.title = `${label} · 双击展开工作台，单击戳一戳，按住即可拖拽移动`;
+        islandCard.dataset.state = visualState;
+        compactLeading.textContent = compactLeadingForSnapshot(snapshot);
+        compactTrailing.hidden = compactTrailingText === "";
+        compactTrailing.textContent = compactTrailingText;
+        islandBadge.textContent = badgeForState(visualState);
+        islandMeta.textContent = topMetaForSnapshot(snapshot);
+        islandStatus.textContent = label;
+        islandDetail.textContent = detail;
+        taskCount.textContent = `${tasks}`;
+        approvalCount.textContent = `${approvals}`;
+        sessionCount.textContent = `${sessions}`;
+        taskChip.hidden = tasks <= 0;
+        approvalChip.hidden = approvals <= 0;
+        sessionChip.hidden = sessions <= 0 || tasks > 0 || approvals > 0;
+        activityRail.hidden = taskChip.hidden && approvalChip.hidden && sessionChip.hidden;
+        islandMood.textContent = conciseSummaryForSnapshot(snapshot);
 
-        maybeShowStateBubble(snapshot);
+        refreshIslandExpansion();
       }
 
       function showOverlay(title, message, meta, detail = "", isError = false) {
@@ -1305,27 +1274,29 @@
         }
       }
 
-      async function enterPetMode() {
-        if (!bridge || typeof bridge.EnterPetMode !== "function") {
+      async function enterIslandMode() {
+        if (!bridge || typeof bridge.EnterIslandMode !== "function") {
           return;
         }
 
         try {
-          await bridge.EnterPetMode();
-          setMode("pet");
+          await bridge.EnterIslandMode();
+          setMode("island");
+          await refreshIslandSnapshot();
         } catch (error) {
           console.error(error);
         }
       }
 
-      async function exitPetMode() {
-        if (!bridge || typeof bridge.ExitPetMode !== "function") {
+      async function exitIslandMode() {
+        if (!bridge || typeof bridge.ExitIslandMode !== "function") {
           return;
         }
 
         try {
-          await bridge.ExitPetMode();
+          await bridge.ExitIslandMode();
           setMode("normal");
+          refreshIslandExpansion();
         } catch (error) {
           console.error(error);
         }
@@ -1339,21 +1310,21 @@
         await bridge.Close();
       }
 
-      async function refreshPetSnapshot() {
-        if (!bridge || typeof bridge.PetSnapshot !== "function") {
+      async function refreshIslandSnapshot() {
+        if (!bridge || typeof bridge.IslandSnapshot !== "function") {
           return;
         }
 
         try {
-          const snapshot = await bridge.PetSnapshot();
+          const snapshot = await bridge.IslandSnapshot();
           setIslandVisual(snapshot);
 
           if (snapshot?.dashboardUrl && !state.dashboardURL) {
             state.dashboardURL = snapshot.dashboardUrl;
           }
 
-          if (snapshot?.mode === "pet") {
-            setMode("pet");
+          if (snapshot?.mode === "island") {
+            setMode("island");
           } else if (snapshot?.mode === "normal") {
             setMode("normal");
           }
@@ -1365,7 +1336,7 @@
       function startPolling() {
         clearInterval(state.pollTimer);
         state.pollTimer = window.setInterval(() => {
-          void refreshPetSnapshot();
+          void refreshIslandSnapshot();
         }, 1800);
       }
 
@@ -1383,16 +1354,16 @@
 
         showOverlay(
           "正在启动桌面工作台",
-          "正在准备本地网关、连接控制台并同步岛宠状态。",
+          "正在准备本地网关、连接控制台并同步灵动岛状态。",
           "首次启动可能会稍慢一些，完成后会自动载入 Dashboard。",
         );
-        setIslandVisual({ state: "booting", label: "正在启动", detail: "正在连接本地网关" });
+        setIslandVisual({ state: "booting", updatedAt: new Date().toISOString() });
 
         try {
           const result = await bridge.Launch();
           if (result?.error) {
             showOverlay(
-              "岛宠启动失败",
+              "灵动岛启动失败",
               result.error,
               "你可以重新尝试，或者先在浏览器里打开控制台。",
               [result.configPath, result.bundleRoot].filter(Boolean).join("\n"),
@@ -1414,7 +1385,7 @@
           );
 
           startPolling();
-          await refreshPetSnapshot();
+          await refreshIslandSnapshot();
         } catch (error) {
           const message = error instanceof Error ? error.message : "Unknown desktop error.";
           showOverlay(
@@ -1442,16 +1413,17 @@
         );
       });
 
-      petCard.addEventListener("click", () => {
-        clearTimeout(state.clickTimer);
-        state.clickTimer = window.setTimeout(() => {
-          triggerPoke();
-        }, 210);
+      islandCard.addEventListener("mouseenter", () => {
+        scheduleHoverExpand();
       });
 
-      petCard.addEventListener("dblclick", () => {
-        clearTimeout(state.clickTimer);
-        void exitPetMode();
+      islandCard.addEventListener("mouseleave", () => {
+        scheduleHoverCollapse();
+      });
+
+      islandCard.addEventListener("dblclick", () => {
+        clearHoverTimers();
+        void exitIslandMode();
       });
 
       openBrowserButton.addEventListener("click", () => {
@@ -1462,8 +1434,8 @@
         void openInBrowser();
       });
 
-      enterPetModeButton.addEventListener("click", () => {
-        void enterPetMode();
+      enterIslandModeButton.addEventListener("click", () => {
+        void enterIslandMode();
       });
 
       closeAppButton.addEventListener("click", () => {

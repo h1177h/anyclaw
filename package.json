@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "desktop:build": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1",
+    "desktop:start": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/start-desktop.ps1",
     "ui:install": "node scripts/ui.mjs install",
     "ui:dev": "node scripts/ui.mjs dev",
     "ui:build": "node scripts/ui.mjs build",
