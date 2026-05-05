@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { requestJSON } from "@/features/api/client";
+
 type ModelSettingsModalProps = {
   onClose: () => void;
 };
@@ -61,38 +63,6 @@ type NoticeState =
   | null;
 
 const NEW_PROVIDER_ID = "__new_provider__";
-
-function safeJsonParse(value: string) {
-  try {
-    return JSON.parse(value) as unknown;
-  } catch {
-    return null;
-  }
-}
-
-async function requestJSON<T>(input: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, {
-    ...init,
-    headers: {
-      Accept: "application/json",
-      ...(init?.body ? { "Content-Type": "application/json" } : null),
-      ...(init?.headers ?? {}),
-    },
-  });
-
-  const raw = await response.text();
-  const payload = raw ? safeJsonParse(raw) : null;
-
-  if (!response.ok) {
-    const message =
-      payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string"
-        ? payload.error
-        : `请求失败 (${response.status})`;
-    throw new Error(message);
-  }
-
-  return payload as T;
-}
 
 function normalizeRuntime(value?: string): ProviderRuntime {
   const runtime = value?.trim().toLowerCase();
