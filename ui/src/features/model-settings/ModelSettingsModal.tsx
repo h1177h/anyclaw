@@ -219,10 +219,12 @@ function resolveTestFeedback(result: ProviderHealth | null) {
 
   const httpStatus = result.http_status;
   const isHealthyHttp = httpStatus === undefined || (httpStatus >= 200 && httpStatus < 300);
+  const fallbackMessage = result.message?.trim() ?? "";
+  const friendlyMessage = resolveProviderHealthMessage(result);
 
   if (result.ok && isHealthyHttp) {
     return {
-      message: result.message || "连接测试已完成",
+      message: friendlyMessage || "连接成功，接口已响应。",
       tone: "success" as const,
     };
   }
@@ -230,16 +232,54 @@ function resolveTestFeedback(result: ProviderHealth | null) {
   if (result.ok && httpStatus !== undefined) {
     return {
       message:
-        result.message ||
+        friendlyMessage ||
         `服务可达，但返回了 HTTP ${httpStatus}。请确认接口地址和 API 协议类型是否正确。`,
       tone: "warning" as const,
     };
   }
 
   return {
-    message: result.message || "连接测试失败",
+    message: friendlyMessage || fallbackMessage || "连接测试失败",
     tone: "error" as const,
   };
+}
+
+function resolveProviderHealthMessage(result: ProviderHealth) {
+  const raw = result.message?.trim() ?? "";
+  const status = result.status?.trim().toLowerCase() ?? "";
+  const httpStatus = result.http_status;
+
+  if (status === "reachable" && result.ok) {
+    return httpStatus ? `连接成功，接口已响应（HTTP ${httpStatus}）。` : "连接成功，接口已响应。";
+  }
+  if (status === "ready" && result.ok) {
+    return raw || "配置已就绪，可以使用。";
+  }
+  if (status === "auth_error") {
+    return httpStatus
+      ? `接口已连通，但 API Key 无效或没有权限（HTTP ${httpStatus}）。`
+      : "接口已连通，但 API Key 无效或没有权限。";
+  }
+  if (status === "endpoint_not_found") {
+    return "接口地址返回 404，请检查是否多填或少填了 API 路径。";
+  }
+  if (status === "invalid_base_url") {
+    return "接口地址格式不正确，请检查后再试。";
+  }
+  if (status === "missing_key") {
+    return "请填写 API Key 后再测试连接。";
+  }
+  if (status === "disabled") {
+    return "这个模型配置已停用，请启用后再测试。";
+  }
+  if (/^Endpoint responded with HTTP 2\d\d\.?$/i.test(raw)) {
+    return httpStatus ? `连接成功，接口已响应（HTTP ${httpStatus}）。` : "连接成功，接口已响应。";
+  }
+  if (/^Endpoint responded with HTTP \d+\.?$/i.test(raw) && httpStatus) {
+    return `接口已响应，但返回了 HTTP ${httpStatus}。`;
+  }
+
+  return raw;
 }
 
 function FieldLabel({ hint, label }: { hint?: string; label: string }) {
