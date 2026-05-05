@@ -51,6 +51,7 @@ describe("ModelSettingsModal", () => {
     expect(screen.getByText("模型名称")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "API 协议类型" })).toHaveTextContent("OpenAI 兼容协议");
     expect(screen.getByRole("combobox", { name: "API 协议类型" })).toHaveTextContent("Anthropic 兼容协议");
+    expect(screen.queryByText("通义千问兼容协议")).not.toBeInTheDocument();
     expect(screen.queryByText("运行时")).not.toBeInTheDocument();
     expect(screen.queryByText("Base URL")).not.toBeInTheDocument();
   });

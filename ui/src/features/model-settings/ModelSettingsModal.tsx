@@ -17,7 +17,7 @@ type ModelSettingsModalProps = {
   onClose: () => void;
 };
 
-type ProviderRuntime = "anthropic" | "compatible" | "ollama" | "qwen";
+type ProviderRuntime = "anthropic" | "compatible" | "ollama";
 
 type ProviderHealth = {
   http_status?: number;
@@ -68,7 +68,6 @@ function normalizeRuntime(value?: string): ProviderRuntime {
   const runtime = value?.trim().toLowerCase() ?? "";
   if (runtime === "anthropic" || runtime.includes("claude")) return "anthropic";
   if (runtime === "ollama") return "ollama";
-  if (runtime === "qwen" || runtime === "dashscope") return "qwen";
   return "compatible";
 }
 
@@ -78,8 +77,6 @@ function runtimeLabel(runtime: ProviderRuntime) {
       return "Anthropic 兼容协议";
     case "ollama":
       return "Ollama 本地接口";
-    case "qwen":
-      return "通义千问兼容协议";
     default:
       return "OpenAI 兼容协议";
   }
@@ -91,8 +88,6 @@ function runtimeModelPlaceholder(runtime: ProviderRuntime) {
       return "例如 claude-3-5-sonnet";
     case "ollama":
       return "例如 llama3.2";
-    case "qwen":
-      return "例如 qwen-max";
     default:
       return "例如 gpt-4o-mini";
   }
@@ -104,8 +99,6 @@ function runtimeBaseUrlPlaceholder(runtime: ProviderRuntime) {
       return "请输入 API 基础地址，例如 https://api.anthropic.com/v1";
     case "ollama":
       return "请输入 API 基础地址，例如 http://127.0.0.1:11434/v1";
-    case "qwen":
-      return "请输入 API 基础地址，例如 https://dashscope.aliyuncs.com/compatible-mode/v1";
     default:
       return "请输入 API 基础地址，例如 https://api.openai.com/v1";
   }
@@ -117,10 +110,8 @@ function runtimeDescription(runtime: ProviderRuntime) {
       return "适用于 Claude / Anthropic Messages API 接口。";
     case "ollama":
       return "适合本地模型，通常不需要 API Key。";
-    case "qwen":
-      return "适用于阿里云百炼兼容模式接入。";
     default:
-      return "适用于 OpenAI、OpenRouter、火山方舟等采用 chat/completions 的接口。";
+      return "适用于 OpenAI、通义千问百炼、OpenRouter、火山方舟等采用 chat/completions 的接口。";
   }
 }
 
@@ -130,8 +121,6 @@ function runtimeToType(runtime: ProviderRuntime) {
       return "anthropic";
     case "ollama":
       return "ollama";
-    case "qwen":
-      return "qwen";
     default:
       return "openai-compatible";
   }
@@ -608,7 +597,6 @@ export function ModelSettingsModal({ onClose }: ModelSettingsModalProps) {
                 >
                   <option value="compatible">OpenAI 兼容协议</option>
                   <option value="anthropic">Anthropic 兼容协议</option>
-                  <option value="qwen">通义千问兼容协议</option>
                   <option value="ollama">Ollama 本地接口</option>
                 </select>
               </div>
